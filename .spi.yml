@@ -1,0 +1,9 @@
+version: 1
+builder:
+  configs:
+    - platform: ios
+    - platform: macos
+    - platform: tvos
+    - platform: watchos
+    - platform: visionos
+    - documentation_targets: [ObjPxlLiveTelemetry]
