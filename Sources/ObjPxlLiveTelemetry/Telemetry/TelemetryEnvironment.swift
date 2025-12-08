@@ -30,10 +30,12 @@ public actor NoopTelemetryLogger: TelemetryLogging {
 public enum TelemetryBootstrap {
     public static func makeLogger(
         distribution: Distribution,
+        containerIdentifier: String? = nil,
         configuration: TelemetryLogger.Configuration = .default
     ) -> any TelemetryLogging {
         guard distribution.isDebug else { return NoopTelemetryLogger.shared }
-        return TelemetryLogger(configuration: configuration)
+        let client = CloudKitClient(containerIdentifier: containerIdentifier)
+        return TelemetryLogger(configuration: configuration, client: client)
     }
 }
 
