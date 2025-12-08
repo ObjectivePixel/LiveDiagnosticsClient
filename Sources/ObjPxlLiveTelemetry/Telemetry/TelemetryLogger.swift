@@ -56,7 +56,7 @@ public actor TelemetryLogger: TelemetryLogging {
 
     public init(
         configuration: Configuration = .default,
-        client: CloudKitClient = CloudKitClient()
+        client: CloudKitClient = CloudKitClient(containerIdentifier: "")
     ) {
         self.client = client
         self.config = configuration

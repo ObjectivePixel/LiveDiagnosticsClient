@@ -1,10 +1,10 @@
 import CloudKit
 import Foundation
 
-struct TelemetrySchema: Sendable {
-    static let recordType = "TelemetryEvent"
+public struct TelemetrySchema: Sendable {
+    public static let recordType = "TelemetryEvent"
 
-    enum Field: String, CaseIterable {
+    public enum Field: String, CaseIterable {
         case eventId
         case eventName
         case eventTimestamp
@@ -16,7 +16,7 @@ struct TelemetrySchema: Sendable {
         case threadId
         case property1
 
-        var isIndexed: Bool {
+        public var isIndexed: Bool {
             switch self {
             case .eventName, .eventTimestamp, .deviceType, .deviceName, .appVersion:
                 return true
@@ -26,7 +26,7 @@ struct TelemetrySchema: Sendable {
         }
     }
 
-    static func validateSchema(in database: CKDatabase) async throws {
+    public static func validateSchema(in database: CKDatabase) async throws {
         // Query with a true predicate to validate the record type exists; CloudKit rejects NSFalsePredicate
         let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
         query.sortDescriptors = []
@@ -41,11 +41,11 @@ struct TelemetrySchema: Sendable {
         }
     }
 
-    enum SchemaError: Error, CustomStringConvertible {
+    public enum SchemaError: Error, CustomStringConvertible {
         case recordTypeNotFound
         case validationFailed(Error)
 
-        var description: String {
+        public var description: String {
             switch self {
             case .recordTypeNotFound:
                 return """
