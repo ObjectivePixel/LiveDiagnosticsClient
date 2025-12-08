@@ -6,12 +6,19 @@
 //
 
 import SwiftUI
+import ObjPxlLiveTelemetry
 
 @main
 struct LiveDiagTestAppApp: App {
+    private let telemetryLogger = TelemetryBootstrap.makeLogger(
+        distribution: .debug,
+        configuration: .default
+    )
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(\.telemetryLogger, telemetryLogger)
         }
     }
 }
