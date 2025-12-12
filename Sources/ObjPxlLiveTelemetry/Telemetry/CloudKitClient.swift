@@ -8,6 +8,7 @@ public struct DebugInfo: Sendable {
     public let testQueryResults: Int
     public let firstRecordID: String?
     public let firstRecordFields: [String]
+    public let recordCount: Int?
     public let errorMessage: String?
 }
 
@@ -15,6 +16,8 @@ public protocol CloudKitClientProtocol: Sendable {
     func validateSchema() async -> Bool
     func save(records: [CKRecord]) async throws
     func fetchAllRecords() async throws -> [CKRecord]
+    func fetchRecords(limit: Int, cursor: CKQueryOperation.Cursor?) async throws -> ([CKRecord], CKQueryOperation.Cursor?)
+    func countRecords() async throws -> Int
     func createTelemetryClient(clientId: String, created: Date, isEnabled: Bool) async throws -> TelemetryClientRecord
     func createTelemetryClient(_ telemetryClient: TelemetryClientRecord) async throws -> TelemetryClientRecord
     func updateTelemetryClient(recordID: CKRecord.ID, clientId: String?, created: Date?, isEnabled: Bool?) async throws -> TelemetryClientRecord
@@ -70,66 +73,117 @@ public struct CloudKitClient: CloudKitClientProtocol {
     }
     
     public func fetchAllRecords() async throws -> [CKRecord] {
-        let query = CKQuery(recordType: TelemetrySchema.recordType, predicate: NSPredicate(value: true))
-        query.sortDescriptors = [NSSortDescriptor(key: TelemetrySchema.Field.eventTimestamp.rawValue, ascending: false)]
+        var allRecords: [CKRecord] = []
+        var cursor: CKQueryOperation.Cursor?
 
-        print("🔍 Fetching records from database: \(database)")
-        print("🔍 Record type: \(TelemetrySchema.recordType)")
-        print("🔍 Container: \(container.containerIdentifier ?? "unknown")")
-        
+        repeat {
+            let result = try await fetchRecords(limit: CKQueryOperation.maximumResults, cursor: cursor)
+            allRecords.append(contentsOf: result.0)
+            cursor = result.1
+        } while cursor != nil
+
+        return allRecords
+    }
+
+    public func fetchRecords(
+        limit: Int = CKQueryOperation.maximumResults,
+        cursor: CKQueryOperation.Cursor? = nil
+    ) async throws -> ([CKRecord], CKQueryOperation.Cursor?) {
+        let operation: CKQueryOperation
+
+        if let cursor {
+            operation = CKQueryOperation(cursor: cursor)
+            print("🔍 Fetching next page of records with cursor")
+        } else {
+            let query = CKQuery(
+                recordType: TelemetrySchema.recordType,
+                predicate: NSPredicate(value: true)
+            )
+            query.sortDescriptors = [
+                NSSortDescriptor(key: TelemetrySchema.Field.eventTimestamp.rawValue, ascending: false)
+            ]
+            print("🔍 Fetching first page of records from database: \(database)")
+            operation = CKQueryOperation(query: query)
+        }
+
+        operation.resultsLimit = limit
+        operation.qualityOfService = .userInitiated
+
         return try await withCheckedThrowingContinuation { continuation in
-            var allRecords: [CKRecord] = []
+            var pageRecords: [CKRecord] = []
 
-            var didResume = false
-
-            func resume(with result: Result<[CKRecord], Error>) {
-                guard !didResume else { return }
-                didResume = true
+            operation.recordMatchedBlock = { recordID, result in
                 switch result {
-                case .success(let records):
-                    continuation.resume(returning: records)
+                case .success(let record):
+                    print("✅ Found record: \(record.recordID.recordName)")
+                    pageRecords.append(record)
                 case .failure(let error):
+                    print("❌ Failed to fetch record \(recordID): \(error)")
+                }
+            }
+
+            operation.queryResultBlock = { result in
+                switch result {
+                case .success(let cursor):
+                    print("📊 Fetched \(pageRecords.count) records in this batch (limit \(limit))")
+                    if let cursor {
+                        print("➡️ More records available, returning cursor for next page")
+                    } else {
+                        print("✅ No more records available")
+                    }
+                    continuation.resume(returning: (pageRecords, cursor))
+                case .failure(let error):
+                    print("❌ Query failed: \(error)")
                     continuation.resume(throwing: error)
                 }
             }
 
-            func configure(operation: CKQueryOperation) {
-                operation.resultsLimit = CKQueryOperation.maximumResults
-                operation.qualityOfService = .userInitiated
+            database.add(operation)
+        }
+    }
 
-                operation.recordMatchedBlock = { recordID, result in
-                    switch result {
-                    case .success(let record):
-                        print("✅ Found record: \(record.recordID.recordName)")
-                        allRecords.append(record)
-                    case .failure(let error):
-                        print("❌ Failed to fetch record \(recordID): \(error)")
+    /// Counts all records with minimal payload (no desired keys, no sort) to reduce latency.
+    public func countRecords() async throws -> Int {
+        let query = CKQuery(recordType: TelemetrySchema.recordType, predicate: NSPredicate(value: true))
+        query.sortDescriptors = []
+
+        var totalCount = 0
+
+        func makeOperation(cursor: CKQueryOperation.Cursor?) -> CKQueryOperation {
+            let op = cursor.map(CKQueryOperation.init) ?? CKQueryOperation(query: query)
+            op.desiredKeys = []
+            op.resultsLimit = CKQueryOperation.maximumResults
+            op.qualityOfService = .utility
+            return op
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            func run(cursor: CKQueryOperation.Cursor?) {
+                let operation = makeOperation(cursor: cursor)
+
+                operation.recordMatchedBlock = { _, result in
+                    if case .success = result {
+                        totalCount += 1
                     }
                 }
 
                 operation.queryResultBlock = { result in
                     switch result {
-                    case .success(let cursor):
-                        print("📊 Fetched \(allRecords.count) records in this batch")
-                        if let cursor {
-                            print("➡️ More records available, fetching next batch...")
-                            let nextOperation = CKQueryOperation(cursor: cursor)
-                            configure(operation: nextOperation)
-                            self.database.add(nextOperation)
+                    case .success(let nextCursor):
+                        if let nextCursor {
+                            run(cursor: nextCursor)
                         } else {
-                            print("✅ Finished fetching. Total records: \(allRecords.count)")
-                            resume(with: .success(allRecords))
+                            continuation.resume(returning: totalCount)
                         }
                     case .failure(let error):
-                        print("❌ Query failed: \(error)")
-                        resume(with: .failure(error))
+                        continuation.resume(throwing: error)
                     }
                 }
+
+                database.add(operation)
             }
 
-            let operation = CKQueryOperation(query: query)
-            configure(operation: operation)
-            database.add(operation)
+            run(cursor: nil)
         }
     }
 
@@ -316,6 +370,13 @@ public struct CloudKitClient: CloudKitClientProtocol {
         do {
             let result = try await database.records(matching: query, resultsLimit: 1)
             let testQueryResults = result.matchResults.count
+            let countResult: Int?
+            do {
+                countResult = try await countRecords()
+            } catch {
+                countResult = nil
+                print("ℹ️ Count failed: \(error)")
+            }
             
             if let first = result.matchResults.first {
                 switch first.1 {
@@ -327,6 +388,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
                         testQueryResults: testQueryResults,
                         firstRecordID: record.recordID.recordName,
                         firstRecordFields: record.allKeys().sorted(),
+                        recordCount: countResult,
                         errorMessage: nil
                     )
                 case .failure(let error):
@@ -337,6 +399,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
                         testQueryResults: 0,
                         firstRecordID: nil,
                         firstRecordFields: [],
+                        recordCount: countResult,
                         errorMessage: "First record error: \(error.localizedDescription)"
                     )
                 }
@@ -348,10 +411,19 @@ public struct CloudKitClient: CloudKitClientProtocol {
                     testQueryResults: testQueryResults,
                     firstRecordID: nil,
                     firstRecordFields: [],
+                    recordCount: countResult,
                     errorMessage: nil
                 )
             }
         } catch {
+            let countResult: Int?
+            do {
+                countResult = try await countRecords()
+            } catch {
+                countResult = nil
+                print("ℹ️ Count failed: \(error)")
+            }
+
             return DebugInfo(
                 containerID: containerID,
                 buildType: buildType,
@@ -359,6 +431,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
                 testQueryResults: 0,
                 firstRecordID: nil,
                 firstRecordFields: [],
+                recordCount: countResult,
                 errorMessage: "Test query failed: \(error.localizedDescription)"
             )
         }
@@ -371,37 +444,63 @@ public struct CloudKitClient: CloudKitClientProtocol {
     
     public func deleteAllRecords() async throws -> Int {
         print("🗑️ Starting to delete all records...")
-        
-        // First, fetch all record IDs
+
         let query = CKQuery(recordType: TelemetrySchema.recordType, predicate: NSPredicate(value: true))
-        let result = try await database.records(matching: query)
-        
-        let recordIDs = result.matchResults.compactMap { _, result in
-            switch result {
-            case .success(let record):
-                return record.recordID
-            case .failure:
-                return nil
+        query.sortDescriptors = []
+
+        func fetchIDs(cursor: CKQueryOperation.Cursor?) async throws -> ([CKRecord.ID], CKQueryOperation.Cursor?) {
+            let op: CKQueryOperation = cursor.map(CKQueryOperation.init) ?? CKQueryOperation(query: query)
+            op.desiredKeys = []
+            op.resultsLimit = CKQueryOperation.maximumResults
+            op.qualityOfService = .utility
+
+            return try await withCheckedThrowingContinuation { continuation in
+                var ids: [CKRecord.ID] = []
+
+                op.recordMatchedBlock = { _, result in
+                    if case .success(let record) = result {
+                        ids.append(record.recordID)
+                    }
+                }
+
+                op.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        continuation.resume(returning: (ids, cursor))
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+
+                database.add(op)
             }
         }
-        
+
+        var recordIDs: [CKRecord.ID] = []
+        var cursor: CKQueryOperation.Cursor?
+        repeat {
+            let page = try await fetchIDs(cursor: cursor)
+            recordIDs.append(contentsOf: page.0)
+            cursor = page.1
+            print("📄 Collected \(recordIDs.count) record IDs so far")
+        } while cursor != nil
+
         guard !recordIDs.isEmpty else {
             print("✅ No records to delete")
             return 0
         }
-        
+
         print("🗑️ Found \(recordIDs.count) records to delete")
-        
-        // Delete records in batches (CloudKit has limits)
-        let batchSize = 400 // CloudKit limit is 400 operations per request
+
+        let batchSize = 400
         var totalDeleted = 0
-        
+
         for i in stride(from: 0, to: recordIDs.count, by: batchSize) {
             let endIndex = min(i + batchSize, recordIDs.count)
             let batch = Array(recordIDs[i..<endIndex])
-            
+
             let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: batch)
-            
+
             let _: Void = try await withCheckedThrowingContinuation { continuation in
                 operation.modifyRecordsResultBlock = { result in
                     switch result {
@@ -413,13 +512,13 @@ public struct CloudKitClient: CloudKitClientProtocol {
                         continuation.resume(throwing: error)
                     }
                 }
-                
+
                 database.add(operation)
             }
-            
+
             totalDeleted += batch.count
         }
-        
+
         print("✅ Successfully deleted \(totalDeleted) records")
         return totalDeleted
     }
