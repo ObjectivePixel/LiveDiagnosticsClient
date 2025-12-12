@@ -1,13 +1,7 @@
-//
-//  CloudkitClient.swift
-//  RemindfullShared
-//
-//  Created by James Clarke on 12/5/25.
-//
-
 import CloudKit
+import Foundation
 
-public struct DebugInfo {
+public struct DebugInfo: Sendable {
     public let containerID: String
     public let buildType: String
     public let environment: String
@@ -21,6 +15,12 @@ public protocol CloudKitClientProtocol: Sendable {
     func validateSchema() async -> Bool
     func save(records: [CKRecord]) async throws
     func fetchAllRecords() async throws -> [CKRecord]
+    func createTelemetryClient(clientId: String, created: Date, isEnabled: Bool) async throws -> TelemetryClientRecord
+    func createTelemetryClient(_ telemetryClient: TelemetryClientRecord) async throws -> TelemetryClientRecord
+    func updateTelemetryClient(recordID: CKRecord.ID, clientId: String?, created: Date?, isEnabled: Bool?) async throws -> TelemetryClientRecord
+    func updateTelemetryClient(_ telemetryClient: TelemetryClientRecord) async throws -> TelemetryClientRecord
+    func deleteTelemetryClient(recordID: CKRecord.ID) async throws
+    func fetchTelemetryClients(isEnabled: Bool?) async throws -> [TelemetryClientRecord]
     func debugDatabaseInfo() async
     func detectEnvironment() async -> String
     func getDebugInfo() async -> DebugInfo
@@ -79,46 +79,185 @@ public struct CloudKitClient: CloudKitClientProtocol {
         
         return try await withCheckedThrowingContinuation { continuation in
             var allRecords: [CKRecord] = []
-            
-            let operation = CKQueryOperation(query: query)
-            operation.resultsLimit = CKQueryOperation.maximumResults
-            operation.qualityOfService = .userInitiated
-            
-            operation.recordMatchedBlock = { recordID, result in
+
+            var didResume = false
+
+            func resume(with result: Result<[CKRecord], Error>) {
+                guard !didResume else { return }
+                didResume = true
                 switch result {
-                case .success(let record):
-                    print("✅ Found record: \(record.recordID.recordName)")
-                    allRecords.append(record)
+                case .success(let records):
+                    continuation.resume(returning: records)
                 case .failure(let error):
-                    print("❌ Failed to fetch record \(recordID): \(error)")
-                }
-            }
-            
-            operation.queryResultBlock = { result in
-                switch result {
-                case .success(let cursor):
-                    print("📊 Fetched \(allRecords.count) records in this batch")
-                    if let cursor = cursor {
-                        print("➡️ More records available, fetching next batch...")
-                        // More records available, continue fetching
-                        let nextOperation = CKQueryOperation(cursor: cursor)
-                        nextOperation.resultsLimit = CKQueryOperation.maximumResults
-                        nextOperation.qualityOfService = .userInitiated
-                        
-                        nextOperation.recordMatchedBlock = operation.recordMatchedBlock
-                        nextOperation.queryResultBlock = operation.queryResultBlock
-                        
-                        self.database.add(nextOperation)
-                    } else {
-                        print("✅ Finished fetching. Total records: \(allRecords.count)")
-                        continuation.resume(returning: allRecords)
-                    }
-                case .failure(let error):
-                    print("❌ Query failed: \(error)")
                     continuation.resume(throwing: error)
                 }
             }
-            
+
+            func configure(operation: CKQueryOperation) {
+                operation.resultsLimit = CKQueryOperation.maximumResults
+                operation.qualityOfService = .userInitiated
+
+                operation.recordMatchedBlock = { recordID, result in
+                    switch result {
+                    case .success(let record):
+                        print("✅ Found record: \(record.recordID.recordName)")
+                        allRecords.append(record)
+                    case .failure(let error):
+                        print("❌ Failed to fetch record \(recordID): \(error)")
+                    }
+                }
+
+                operation.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        print("📊 Fetched \(allRecords.count) records in this batch")
+                        if let cursor {
+                            print("➡️ More records available, fetching next batch...")
+                            let nextOperation = CKQueryOperation(cursor: cursor)
+                            configure(operation: nextOperation)
+                            self.database.add(nextOperation)
+                        } else {
+                            print("✅ Finished fetching. Total records: \(allRecords.count)")
+                            resume(with: .success(allRecords))
+                        }
+                    case .failure(let error):
+                        print("❌ Query failed: \(error)")
+                        resume(with: .failure(error))
+                    }
+                }
+            }
+
+            let operation = CKQueryOperation(query: query)
+            configure(operation: operation)
+            database.add(operation)
+        }
+    }
+
+    // MARK: - Telemetry Clients
+
+    public func createTelemetryClient(
+        clientId: String,
+        created: Date = .now,
+        isEnabled: Bool
+    ) async throws -> TelemetryClientRecord {
+        try await createTelemetryClient(
+            TelemetryClientRecord(
+                recordID: nil,
+                clientId: clientId,
+                created: created,
+                isEnabled: isEnabled
+            )
+        )
+    }
+
+    public func createTelemetryClient(_ telemetryClient: TelemetryClientRecord) async throws -> TelemetryClientRecord {
+        let savedRecord = try await database.save(telemetryClient.toCKRecord())
+        return try TelemetryClientRecord(record: savedRecord)
+    }
+
+    public func updateTelemetryClient(
+        recordID: CKRecord.ID,
+        clientId: String? = nil,
+        created: Date? = nil,
+        isEnabled: Bool? = nil
+    ) async throws -> TelemetryClientRecord {
+        let existing = try await database.record(for: recordID)
+        guard existing.recordType == TelemetrySchema.clientRecordType else {
+            throw TelemetryClientRecord.Error.unexpectedRecordType(existing.recordType)
+        }
+
+        let current = try TelemetryClientRecord(record: existing)
+        let updated = TelemetryClientRecord(
+            recordID: recordID,
+            clientId: clientId ?? current.clientId,
+            created: created ?? current.created,
+            isEnabled: isEnabled ?? current.isEnabled
+        )
+        let saved = try await database.save(updated.toCKRecord())
+        return try TelemetryClientRecord(record: saved)
+    }
+
+    public func updateTelemetryClient(_ telemetryClient: TelemetryClientRecord) async throws -> TelemetryClientRecord {
+        guard let recordID = telemetryClient.recordID else {
+            throw TelemetryClientRecord.Error.missingRecordID
+        }
+
+        let record = try await database.record(for: recordID)
+        let updatedRecord = try telemetryClient.applying(to: record)
+        let saved = try await database.save(updatedRecord)
+        return try TelemetryClientRecord(record: saved)
+    }
+
+    public func deleteTelemetryClient(recordID: CKRecord.ID) async throws {
+        _ = try await database.deleteRecord(withID: recordID)
+    }
+
+    public func fetchTelemetryClients(isEnabled: Bool? = nil) async throws -> [TelemetryClientRecord] {
+        let predicate: NSPredicate
+        if let isEnabled {
+            predicate = NSPredicate(
+                format: "%K == %@",
+                TelemetrySchema.ClientField.isEnabled.rawValue,
+                NSNumber(value: isEnabled)
+            )
+        } else {
+            predicate = NSPredicate(value: true)
+        }
+
+        let query = CKQuery(recordType: TelemetrySchema.clientRecordType, predicate: predicate)
+        query.sortDescriptors = [NSSortDescriptor(key: TelemetrySchema.ClientField.created.rawValue, ascending: false)]
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var allClients: [TelemetryClientRecord] = []
+            var didResume = false
+
+            func resume(with result: Result<[TelemetryClientRecord], Error>) {
+                guard !didResume else { return }
+                didResume = true
+                switch result {
+                case .success(let clients):
+                    continuation.resume(returning: clients)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            func configure(operation: CKQueryOperation) {
+                operation.resultsLimit = CKQueryOperation.maximumResults
+                operation.qualityOfService = .userInitiated
+
+                operation.recordMatchedBlock = { recordID, result in
+                    switch result {
+                    case .success(let record):
+                        do {
+                            let client = try TelemetryClientRecord(record: record)
+                            allClients.append(client)
+                        } catch {
+                            print("❌ Failed to parse record \(recordID): \(error)")
+                        }
+                    case .failure(let error):
+                        print("❌ Failed to fetch record \(recordID): \(error)")
+                    }
+                }
+
+                operation.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        if let cursor {
+                            let nextOperation = CKQueryOperation(cursor: cursor)
+                            configure(operation: nextOperation)
+                            self.database.add(nextOperation)
+                        } else {
+                            resume(with: .success(allClients))
+                        }
+                    case .failure(let error):
+                        resume(with: .failure(error))
+                    }
+                }
+            }
+
+            let operation = CKQueryOperation(query: query)
+            configure(operation: operation)
             database.add(operation)
         }
     }
