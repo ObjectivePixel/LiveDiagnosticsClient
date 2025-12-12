@@ -16,7 +16,7 @@
    - `CONTAINER_ID`: CloudKit container identifier (e.g., `iCloud.com.yourcompany.yourapp`)
    - `environment`: `development` (default) or `production`
    - Add `--validate-only` to check schema without importing changes
-3. The script imports (or validates) the `TelemetryEvent` schema with correct fields, indexes, and permissions in one step.
+3. The script imports (or validates) both the `TelemetryEvent` and `TelemetryClient` schema with correct fields, indexes, and permissions in one step.
 
 ### Step 1.1: Access CloudKit Dashboard
 1. Navigate to https://icloud.developer.apple.com/
@@ -51,3 +51,17 @@ Add the following fields one by one (click "Add Field" for each):
 - Only index fields you'll frequently query to optimize performance
 - Date/Time type is critical for `eventTimestamp` (not String)
 - All other fields should be String type
+
+### Step 1.4: Add Fields to TelemetryClient Record Type
+
+Add the following fields to the `TelemetryClient` record type:
+
+| Field Name | Type      | Queryable/Indexed | Notes                      |
+|------------|-----------|-------------------|----------------------------|
+| clientid   | String    | ☑ Yes             | Client identifier          |
+| created    | Date/Time | ☑ Yes             | When the client was added  |
+| isEnabled  | Boolean   | ☑ Yes             | Whether the client is active |
+
+**Notes:**
+- Leave default permissions identical to TelemetryEvent (read `_world`, create `_icloud`, write `_creator`).
+- Use Boolean for `isEnabled` (not String) when creating manually in Dashboard.
