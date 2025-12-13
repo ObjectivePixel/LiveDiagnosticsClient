@@ -23,11 +23,17 @@ public protocol CloudKitClientProtocol: Sendable {
     func updateTelemetryClient(recordID: CKRecord.ID, clientId: String?, created: Date?, isEnabled: Bool?) async throws -> TelemetryClientRecord
     func updateTelemetryClient(_ telemetryClient: TelemetryClientRecord) async throws -> TelemetryClientRecord
     func deleteTelemetryClient(recordID: CKRecord.ID) async throws
-    func fetchTelemetryClients(isEnabled: Bool?) async throws -> [TelemetryClientRecord]
+    func fetchTelemetryClients(clientId: String?, isEnabled: Bool?) async throws -> [TelemetryClientRecord]
     func debugDatabaseInfo() async
     func detectEnvironment() async -> String
     func getDebugInfo() async -> DebugInfo
     func deleteAllRecords() async throws -> Int
+}
+
+public extension CloudKitClientProtocol {
+    func deleteAllTelemetryEvents() async throws -> Int {
+        try await deleteAllRecords()
+    }
 }
 
 public struct CloudKitClient: CloudKitClientProtocol {
@@ -126,7 +132,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
                 switch result {
                 case .success(let cursor):
                     print("📊 Fetched \(pageRecords.count) records in this batch (limit \(limit))")
-                    if let cursor {
+                    if cursor != nil {
                         print("➡️ More records available, returning cursor for next page")
                     } else {
                         print("✅ No more records available")
@@ -246,15 +252,33 @@ public struct CloudKitClient: CloudKitClientProtocol {
         _ = try await database.deleteRecord(withID: recordID)
     }
 
-    public func fetchTelemetryClients(isEnabled: Bool? = nil) async throws -> [TelemetryClientRecord] {
+    public func fetchTelemetryClients(
+        clientId: String? = nil,
+        isEnabled: Bool? = nil
+    ) async throws -> [TelemetryClientRecord] {
         let predicate: NSPredicate
-        if let isEnabled {
+        switch (clientId, isEnabled) {
+        case (let clientId?, let isEnabled?):
+            predicate = NSPredicate(
+                format: "%K == %@ AND %K == %@",
+                TelemetrySchema.ClientField.clientId.rawValue,
+                clientId,
+                TelemetrySchema.ClientField.isEnabled.rawValue,
+                NSNumber(value: isEnabled)
+            )
+        case (let clientId?, nil):
+            predicate = NSPredicate(
+                format: "%K == %@",
+                TelemetrySchema.ClientField.clientId.rawValue,
+                clientId
+            )
+        case (nil, let isEnabled?):
             predicate = NSPredicate(
                 format: "%K == %@",
                 TelemetrySchema.ClientField.isEnabled.rawValue,
                 NSNumber(value: isEnabled)
             )
-        } else {
+        default:
             predicate = NSPredicate(value: true)
         }
 

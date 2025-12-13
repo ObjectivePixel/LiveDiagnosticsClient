@@ -59,7 +59,7 @@ DEFINE SCHEMA
     RECORD TYPE TelemetryClient (
         clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
         created         TIMESTAMP QUERYABLE SORTABLE,
-        isEnabled       STRING QUERYABLE SEARCHABLE SORTABLE,
+        isEnabled       BOOLEAN QUERYABLE SEARCHABLE SORTABLE,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,

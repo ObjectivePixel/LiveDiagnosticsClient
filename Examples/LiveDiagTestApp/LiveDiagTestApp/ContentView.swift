@@ -9,24 +9,43 @@ import SwiftUI
 import ObjPxlLiveTelemetry
 
 struct ContentView: View {
-    @Environment(\.telemetryLogger) private var telemetryLogger
+    @Environment(\.telemetryLifecycle) private var telemetryLifecycle
     @State private var lastEvent: String?
 
     var body: some View {
-        VStack {
-            Image(systemName: "waveform.path")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Live Diagnostics")
-                .bold()
-
-            if let lastEvent {
-                Text(lastEvent)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.top)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading) {
+                    TelemetryToggleView()
+                    Divider()
+                    TestEventSection(
+                        telemetryLogger: telemetryLogger,
+                        lastEvent: $lastEvent
+                    )
+                }
+                .padding()
             }
+            .navigationTitle("Live Diagnostics")
+        }
+    }
 
+    private var telemetryLogger: any TelemetryLogging {
+        telemetryLifecycle.telemetryLogger
+    }
+}
+
+#Preview {
+    ContentView()
+}
+
+private struct TestEventSection: View {
+    let telemetryLogger: any TelemetryLogging
+    @Binding var lastEvent: String?
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Verify telemetry")
+                .font(.headline)
             Button("Send Test Telemetry", systemImage: "paperplane") {
                 let timestamp = Date()
                 telemetryLogger.logEvent(
@@ -36,12 +55,12 @@ struct ContentView: View {
                 lastEvent = "Logged test_button_tap at \(timestamp.formatted(date: .omitted, time: .standard))"
             }
             .buttonStyle(.borderedProminent)
-            .padding(.top)
-        }
-        .padding()
-    }
-}
 
-#Preview {
-    ContentView()
+            if let lastEvent {
+                Text(lastEvent)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+    }
 }

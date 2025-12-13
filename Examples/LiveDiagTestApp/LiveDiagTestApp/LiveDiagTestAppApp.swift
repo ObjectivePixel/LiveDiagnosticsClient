@@ -10,22 +10,23 @@ import ObjPxlLiveTelemetry
 
 @main
 struct LiveDiagTestAppApp: App {
-    private let telemetryLogger: any TelemetryLogging
+    private let telemetryLifecycle: TelemetryLifecycleService
 
     init() {
-        // Replace this value with your CloudKit container identifier.
-        let cloudKitContainerIdentifier: String? = "iCloud.objpxl.example.telemetry"
-        telemetryLogger = TelemetryBootstrap.makeLogger(
-            distribution: .debug,
-            containerIdentifier: cloudKitContainerIdentifier,
-            configuration: .default
+        telemetryLifecycle = TelemetryLifecycleService(
+            configuration: .init(
+                distribution: .debug,
+                containerIdentifier: TelemetrySchema.cloudKitContainerIdentifierTelemetry,
+                loggerConfiguration: .default
+            )
         )
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(\.telemetryLogger, telemetryLogger)
+                .environment(\.telemetryLifecycle, telemetryLifecycle)
+                .environment(\.telemetryLogger, telemetryLifecycle.telemetryLogger)
         }
     }
 }
