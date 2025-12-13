@@ -55,6 +55,60 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertNotNil(service.telemetryLogger as? SpyTelemetryLogger)
     }
 
+    func testEnableReusesExistingClient() async throws {
+        let cloudKit = MockCloudKitClient()
+        let existing = try await cloudKit.createTelemetryClient(
+            clientId: "sampleid01",
+            created: .now,
+            isEnabled: false
+        )
+
+        let store = InMemoryTelemetrySettingsStore()
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
+            configuration: .init(distribution: .debug),
+            loggerFactory: { SpyTelemetryLogger() }
+        )
+
+        await service.enableTelemetry()
+
+        let clients = await cloudKit.telemetryClients()
+        XCTAssertEqual(clients.count, 1)
+        let client = try XCTUnwrap(clients.first)
+        XCTAssertEqual(client.recordID, existing.recordID)
+        XCTAssertTrue(client.isEnabled)
+        XCTAssertTrue(service.settings.telemetrySendingEnabled)
+    }
+
+    func testEnableRecoversFromServerRecordChanged() async throws {
+        let cloudKit = MockCloudKitClient()
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "sampleid01",
+            created: .now,
+            isEnabled: false
+        )
+        await cloudKit.setCreateError(CKError(.serverRecordChanged))
+
+        let store = InMemoryTelemetrySettingsStore()
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
+            configuration: .init(distribution: .debug),
+            loggerFactory: { SpyTelemetryLogger() }
+        )
+
+        await service.enableTelemetry()
+
+        let clients = await cloudKit.telemetryClients()
+        XCTAssertEqual(clients.count, 1)
+        let client = try XCTUnwrap(clients.first)
+        XCTAssertTrue(client.isEnabled)
+        XCTAssertTrue(service.settings.telemetrySendingEnabled)
+    }
+
     func testReconcileEnablesLocalSendingWhenServerOn() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -184,6 +238,7 @@ private actor SpyTelemetryLogger: TelemetryLogging {
 private actor MockCloudKitClient: CloudKitClientProtocol {
     private var records: [CKRecord] = []
     private var clients: [TelemetryClientRecord] = []
+    private var createError: Error?
 
     func validateSchema() async -> Bool { true }
 
@@ -212,6 +267,9 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
         created: Date,
         isEnabled: Bool
     ) async throws -> TelemetryClientRecord {
+        if let createError {
+            throw createError
+        }
         let record = TelemetryClientRecord(
             recordID: CKRecord.ID(recordName: UUID().uuidString),
             clientId: clientId,
@@ -293,6 +351,10 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
         let count = records.count
         records.removeAll()
         return count
+    }
+
+    func setCreateError(_ error: Error?) async {
+        createError = error
     }
 
     func telemetryClients() async -> [TelemetryClientRecord] {

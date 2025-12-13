@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import Observation
 
@@ -110,24 +111,43 @@ public final class TelemetryLifecycleService {
         await refreshLogger()
 
         do {
-            let pendingRecord = try await cloudKitClient.createTelemetryClient(
-                clientId: identifier,
-                created: .now,
-                isEnabled: false
-            )
-            clientRecord = pendingRecord
+            let existingClients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
+            if let existing = existingClients.first, let recordID = existing.recordID {
+                clientRecord = try await cloudKitClient.updateTelemetryClient(
+                    recordID: recordID,
+                    clientId: existing.clientId,
+                    created: existing.created,
+                    isEnabled: true
+                )
+            } else {
+                do {
+                    let pendingRecord = try await cloudKitClient.createTelemetryClient(
+                        clientId: identifier,
+                        created: .now,
+                        isEnabled: false
+                    )
+                    clientRecord = pendingRecord
+
+                    if let recordID = pendingRecord.recordID {
+                        clientRecord = try await cloudKitClient.updateTelemetryClient(
+                            recordID: recordID,
+                            clientId: pendingRecord.clientId,
+                            created: pendingRecord.created,
+                            isEnabled: true
+                        )
+                    }
+                } catch {
+                    if let ckError = error as? CKError, ckError.code == .serverRecordChanged {
+                        let recovered = try await recoverExistingClient(identifier: identifier)
+                        clientRecord = recovered
+                    } else {
+                        throw error
+                    }
+                }
+            }
 
             currentSettings.telemetrySendingEnabled = true
             settings = await settingsStore.save(currentSettings)
-
-            if let recordID = pendingRecord.recordID {
-                clientRecord = try await cloudKitClient.updateTelemetryClient(
-                    recordID: recordID,
-                    clientId: pendingRecord.clientId,
-                    created: pendingRecord.created,
-                    isEnabled: true
-                )
-            }
 
             reconciliation = .localAndServerEnabled
             setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
@@ -235,6 +255,19 @@ private extension TelemetryLifecycleService {
     func setStatus(_ status: Status, message: String?) {
         self.status = status
         statusMessage = message
+    }
+
+    func recoverExistingClient(identifier: String) async throws -> TelemetryClientRecord? {
+        let clients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
+        guard let existing = clients.first, let recordID = existing.recordID else {
+            return nil
+        }
+        return try await cloudKitClient.updateTelemetryClient(
+            recordID: recordID,
+            clientId: existing.clientId,
+            created: existing.created,
+            isEnabled: true
+        )
     }
 
     func refreshLogger() async {

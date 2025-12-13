@@ -65,3 +65,4 @@ Add the following fields to the `TelemetryClient` record type:
 **Notes:**
 - Leave default permissions identical to TelemetryEvent (read `_world`, create `_icloud`, write `_creator`).
 - Use Boolean for `isEnabled` (not String) when creating manually in Dashboard.
+- When importing via `cktool-telemetry-schema.sh`, `isEnabled` is emitted as `INT64 QUERYABLE SORTABLE` because the cktool DSL lacks a Boolean literal and rejects `SEARCHABLE` for numbers. After import, set the field type to Boolean in Dashboard if you want it to appear as a Bool; the code writes `Bool` values and CloudKit will accept them for this field.
