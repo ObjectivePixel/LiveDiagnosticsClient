@@ -31,8 +31,12 @@
 - Enable path: generate ID; set `telemetryRequested = true`, `telemetrySendingEnabled = false`; create CloudKit client record (`embedded = false`); activate logger; surface status.
 - Post-reconciliation outcomes: local false/server true → enable sending; local true/server false → disable; both true → no-op; ensure UI reflects final `telemetrySendingEnabled`.
 - Disable path: if sending was enabled, delete telemetry records and client; clear settings/ID; revert to Noop logger; update status.
+- Integrate the toggle view into the example app/demo target to allow an end-to-end flow (enable, reconcile, disable) against CloudKit with visible status and ID.
 
 ## Testing & Docs
 - Unit tests with mocked `CloudKitClientProtocol` for settings store, ID generator, enable/disable flows, reconciliation outcomes, and logger switching.
 - SwiftUI previews/snapshot sanity for `TelemetryToggleView` across platforms (non-blocking).
 - Documentation: README/package docs describing the toggle view, settings keys, ID format, CloudKit `TelemetryClientRecord` usage/fields, and lifecycle behavior.
+
+## Example app
+- Implement the toggle view in the example app to demonstrate the end-to-end flow.
