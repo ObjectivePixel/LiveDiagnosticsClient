@@ -39,6 +39,21 @@ public struct TelemetryToggleView: View {
                 } icon: {
                     Image(systemName: "person.text.rectangle")
                 }
+
+                let sessionId = lifecycle.telemetryLogger.currentSessionId
+                if !sessionId.isEmpty {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Session ID")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(sessionId)
+                                .textSelection(.enabled)
+                        }
+                    } icon: {
+                        Image(systemName: "clock.badge.checkmark")
+                    }
+                }
             }
 
             HStack {

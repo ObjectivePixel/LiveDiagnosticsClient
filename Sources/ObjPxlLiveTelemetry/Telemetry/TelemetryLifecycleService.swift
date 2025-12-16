@@ -23,16 +23,13 @@ public final class TelemetryLifecycleService {
     }
 
     public struct Configuration: Sendable {
-        public var distribution: Distribution
         public var containerIdentifier: String?
         public var loggerConfiguration: TelemetryLogger.Configuration
 
         public init(
-            distribution: Distribution = .debug,
             containerIdentifier: String? = TelemetrySchema.cloudKitContainerIdentifierTelemetry,
             loggerConfiguration: TelemetryLogger.Configuration = .default
         ) {
-            self.distribution = distribution
             self.containerIdentifier = containerIdentifier
             self.loggerConfiguration = loggerConfiguration
         }
@@ -43,6 +40,7 @@ public final class TelemetryLifecycleService {
     public private(set) var settings: TelemetrySettings = .defaults
     public private(set) var clientRecord: TelemetryClientRecord?
     public private(set) var statusMessage: String?
+    public private(set) var isRestorationInProgress = false
 
     public var telemetryLogger: any TelemetryLogging { logger }
 
@@ -50,51 +48,84 @@ public final class TelemetryLifecycleService {
     private let cloudKitClient: CloudKitClientProtocol
     private let identifierGenerator: any TelemetryIdentifierGenerating
     private let configuration: Configuration
-    private let loggerFactory: @Sendable () -> any TelemetryLogging
-    private var logger: any TelemetryLogging
+    private let logger: any TelemetryLogging
+    private let syncCoordinator: TelemetrySettingsSyncCoordinator
 
     public init(
         settingsStore: any TelemetrySettingsStoring = UserDefaultsTelemetrySettingsStore(),
         cloudKitClient: CloudKitClientProtocol? = nil,
         identifierGenerator: any TelemetryIdentifierGenerating = TelemetryIdentifierGenerator(),
         configuration: Configuration = .init(),
-        loggerFactory: (@Sendable () -> any TelemetryLogging)? = nil
+        logger: (any TelemetryLogging)? = nil,
+        syncCoordinator: TelemetrySettingsSyncCoordinator? = nil
     ) {
-        let resolvedConfiguration = configuration
         self.settingsStore = settingsStore
-        self.cloudKitClient = cloudKitClient ?? CloudKitClient(containerIdentifier: resolvedConfiguration.containerIdentifier)
+        self.cloudKitClient = cloudKitClient ?? CloudKitClient(containerIdentifier: configuration.containerIdentifier)
         self.identifierGenerator = identifierGenerator
-        self.configuration = resolvedConfiguration
-        if let loggerFactory {
-            self.loggerFactory = loggerFactory
+        self.configuration = configuration
+        self.syncCoordinator = syncCoordinator ?? TelemetrySettingsSyncCoordinator(
+            backupClient: CloudKitSettingsBackupClient(containerIdentifier: configuration.containerIdentifier)
+        )
+        if let logger {
+            self.logger = logger
         } else {
-            let configuration = resolvedConfiguration
-            self.loggerFactory = {
-                let client = CloudKitClient(containerIdentifier: configuration.containerIdentifier)
-                return TelemetryLogger(configuration: configuration.loggerConfiguration, client: client)
-            }
+            let client = CloudKitClient(containerIdentifier: configuration.containerIdentifier)
+            self.logger = TelemetryLogger(configuration: configuration.loggerConfiguration, client: client)
         }
-        logger = NoopTelemetryLogger.shared
     }
 
     @discardableResult
     public func startup() async -> TelemetrySettings {
         setStatus(.loading, message: "Loading telemetry preferences")
-        let loaded = await settingsStore.load()
-        settings = loaded
-        await refreshLogger()
 
-        guard loaded.telemetryRequested, loaded.clientIdentifier != nil else {
-            if loaded.telemetryRequested || loaded.clientIdentifier != nil {
-                settings = await settingsStore.reset()
+        // Load from UserDefaults (fast)
+        let localSettings = await settingsStore.load()
+        settings = localSettings
+
+        // Kick off background restoration (non-blocking on telemetry thread)
+        isRestorationInProgress = true
+        Task {
+            await performBackgroundRestore()
+        }
+
+        return localSettings
+    }
+
+    private func performBackgroundRestore() async {
+        let backupResult = await syncCoordinator.restoreSettingsFromBackup()
+
+        await MainActor.run {
+            switch backupResult {
+            case .restored(let restoredSettings):
+                // Use restored settings
+                self.settings = restoredSettings
+                Task {
+                    _ = await self.settingsStore.save(restoredSettings)
+                }
+            case .fresh, .failed, .pending, .restoring:
+                // Use local settings (already set)
+                break
+            }
+        }
+
+        // Now reconcile and activate based on final settings
+        if settings.telemetryRequested, settings.clientIdentifier != nil {
+            _ = await reconcile()
+        } else {
+            if settings.telemetryRequested || settings.clientIdentifier != nil {
+                settings = await resetAndClearBackup()
             }
             reconciliation = .allDisabled
             setStatus(.disabled, message: "Telemetry disabled")
-            return settings
         }
 
-        _ = await reconcile()
-        return settings
+        // Activate logger with final enabled state
+        let shouldBeEnabled = settings.telemetryRequested && settings.telemetrySendingEnabled
+        await logger.activate(enabled: shouldBeEnabled)
+
+        await MainActor.run {
+            self.isRestorationInProgress = false
+        }
     }
 
     @discardableResult
@@ -107,8 +138,8 @@ public final class TelemetryLifecycleService {
         currentSettings.telemetryRequested = true
         currentSettings.telemetrySendingEnabled = false
 
-        settings = await settingsStore.save(currentSettings)
-        await refreshLogger()
+        settings = await saveAndBackupSettings(currentSettings)
+        await updateLoggerEnabled()
 
         do {
             let existingClients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
@@ -137,7 +168,13 @@ public final class TelemetryLifecycleService {
                         )
                     }
                 } catch {
-                    if let ckError = error as? CKError, ckError.code == .serverRecordChanged {
+                    // Handle various CloudKit conflict errors that indicate record already exists
+                    if let ckError = error as? CKError,
+                       ckError.code == .serverRecordChanged || ckError.code == .constraintViolation {
+                        let recovered = try await recoverExistingClient(identifier: identifier)
+                        clientRecord = recovered
+                    } else if (error as NSError).domain == CKErrorDomain {
+                        // Catch any other CK "record exists" errors by attempting recovery
                         let recovered = try await recoverExistingClient(identifier: identifier)
                         clientRecord = recovered
                     } else {
@@ -147,11 +184,11 @@ public final class TelemetryLifecycleService {
             }
 
             currentSettings.telemetrySendingEnabled = true
-            settings = await settingsStore.save(currentSettings)
+            settings = await saveAndBackupSettings(currentSettings)
 
             reconciliation = .localAndServerEnabled
             setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
-            await refreshLogger()
+            await updateLoggerEnabled()
         } catch {
             let description = error.localizedDescription
             reconciliation = nil
@@ -184,8 +221,8 @@ public final class TelemetryLifecycleService {
         let identifier = settings.clientIdentifier
         clientRecord = nil
         reconciliation = reason ?? .allDisabled
-        settings = await settingsStore.reset()
-        await refreshLogger()
+        settings = await resetAndClearBackup()
+        await updateLoggerEnabled()
         let message: String
         if let reason, let identifier {
             message = statusMessage(for: reason, identifier: identifier)
@@ -204,7 +241,7 @@ public final class TelemetryLifecycleService {
         settings = currentSettings
         guard currentSettings.telemetryRequested, let identifier = currentSettings.clientIdentifier else {
             reconciliation = .allDisabled
-            await refreshLogger()
+            await updateLoggerEnabled()
             setStatus(.disabled, message: "Telemetry disabled")
             return reconciliation
         }
@@ -222,7 +259,7 @@ public final class TelemetryLifecycleService {
                 outcome = .localAndServerEnabled
             case (false, true):
                 currentSettings.telemetrySendingEnabled = true
-                settings = await settingsStore.save(currentSettings)
+                settings = await saveAndBackupSettings(currentSettings)
                 outcome = .serverEnabledLocalDisabled
             case (true, false):
                 outcome = .serverDisabledLocalEnabled
@@ -233,7 +270,7 @@ public final class TelemetryLifecycleService {
                 outcome = clients.isEmpty ? .missingClient : .allDisabled
                 currentSettings = .defaults
                 clientRecord = nil
-                settings = await settingsStore.save(currentSettings)
+                settings = await resetAndClearBackup()
             }
 
             reconciliation = outcome
@@ -241,7 +278,7 @@ public final class TelemetryLifecycleService {
                 settings.telemetrySendingEnabled ? .enabled : .disabled,
                 message: statusMessage(for: outcome, identifier: identifier)
             )
-            await refreshLogger()
+            await updateLoggerEnabled()
             return outcome
         } catch {
             let description = error.localizedDescription
@@ -270,19 +307,27 @@ private extension TelemetryLifecycleService {
         )
     }
 
-    func refreshLogger() async {
-        let shouldUseTelemetryLogger = settings.telemetryRequested &&
-        settings.telemetrySendingEnabled &&
-        configuration.distribution.isDebug
+    func updateLoggerEnabled() async {
+        let shouldBeEnabled = settings.telemetryRequested && settings.telemetrySendingEnabled
+        await logger.setEnabled(shouldBeEnabled)
+    }
 
-        if shouldUseTelemetryLogger {
-            guard logger is NoopTelemetryLogger else { return }
-            logger = loggerFactory()
-        } else if !(logger is NoopTelemetryLogger) {
-            let loggerToShutdown = logger
-            logger = NoopTelemetryLogger.shared
-            await loggerToShutdown.shutdown()
+    func saveAndBackupSettings(_ settings: TelemetrySettings) async -> TelemetrySettings {
+        let saved = await settingsStore.save(settings)
+        // Backup to private CloudKit (fire and forget)
+        Task {
+            try? await syncCoordinator.backupSettings(settings)
         }
+        return saved
+    }
+
+    func resetAndClearBackup() async -> TelemetrySettings {
+        let reset = await settingsStore.reset()
+        // Clear backup from private CloudKit (fire and forget)
+        Task {
+            try? await syncCoordinator.clearBackup()
+        }
+        return reset
     }
 
     func statusMessage(for outcome: ReconciliationResult, identifier: String) -> String {

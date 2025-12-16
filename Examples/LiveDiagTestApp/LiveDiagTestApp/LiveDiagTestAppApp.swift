@@ -15,7 +15,6 @@ struct LiveDiagTestAppApp: App {
     init() {
         telemetryLifecycle = TelemetryLifecycleService(
             configuration: .init(
-                distribution: .debug,
                 containerIdentifier: TelemetrySchema.cloudKitContainerIdentifierTelemetry,
                 loggerConfiguration: .default
             )

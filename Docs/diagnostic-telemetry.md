@@ -38,6 +38,7 @@ Add the following fields one by one (click "Add Field" for each):
 | eventId          | String    | ☐ No              | Unique identifier per event     |
 | eventName        | String    | ☑ Yes             | Event type/category             |
 | eventTimestamp   | Date/Time | ☑ Yes             | When event occurred             |
+| sessionId        | String    | ☑ Yes             | App launch session identifier (fresh UUID per launch) |
 | deviceType       | String    | ☑ Yes             | "iPhone", "iPad", "Vision Pro", "Watch", "Apple TV" |
 | deviceName       | String    | ☑ Yes             | User-assigned device name or host name             |
 | deviceModel      | String    | ☐ No              | Hardware model identifier       |
@@ -66,3 +67,22 @@ Add the following fields to the `TelemetryClient` record type:
 - Leave default permissions identical to TelemetryEvent (read `_world`, create `_icloud`, write `_creator`).
 - Use Boolean for `isEnabled` (not String) when creating manually in Dashboard.
 - When importing via `cktool-telemetry-schema.sh`, `isEnabled` is emitted as `INT64 QUERYABLE SORTABLE` because the cktool DSL lacks a Boolean literal and rejects `SEARCHABLE` for numbers. After import, set the field type to Boolean in Dashboard if you want it to appear as a Bool; the code writes `Bool` values and CloudKit will accept them for this field.
+
+### Step 1.5: TelemetrySettingsBackup Record Type (Private Database - Auto-Created)
+
+This record type is stored in the **private CloudKit database** to backup user telemetry settings. It allows settings to survive app reinstallation.
+
+**No manual setup required** - CloudKit automatically creates the schema in the private database when the app first writes to it.
+
+| Field Name              | Type      | Queryable/Indexed | Notes                                    |
+|-------------------------|-----------|-------------------|------------------------------------------|
+| telemetryRequested      | Boolean   | ☐ No              | User has opted into telemetry            |
+| telemetrySendingEnabled | Boolean   | ☐ No              | Server has enabled sending for this client |
+| clientIdentifier        | String    | ☐ No              | Client identifier string                 |
+| lastUpdated             | Date/Time | ☐ No              | When settings were last backed up        |
+
+**Notes:**
+- Uses the **same container** as TelemetryEvent/TelemetryClient, but the **private database** for user privacy.
+- Private database records are only visible to the user who created them.
+- A fixed record name `TelemetrySettingsBackup` is used for upsert semantics (one backup record per user).
+- The `cktool-telemetry-schema.sh` script only imports public database schemas; private database schemas are auto-created.

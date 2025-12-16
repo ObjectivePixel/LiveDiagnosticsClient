@@ -4,12 +4,14 @@ import Foundation
 public struct TelemetrySchema: Sendable {
     public static let recordType = "TelemetryEvent"
     public static let clientRecordType = "TelemetryClient"
+    public static let settingsBackupRecordType = "TelemetrySettingsBackup"
     public static let cloudKitContainerIdentifierTelemetry = "iCloud.objpxl.example.telemetry"
 
     public enum Field: String, CaseIterable {
         case eventId
         case eventName
         case eventTimestamp
+        case sessionId
         case deviceType
         case deviceName
         case deviceModel
@@ -20,7 +22,7 @@ public struct TelemetrySchema: Sendable {
 
         public var isIndexed: Bool {
             switch self {
-            case .eventName, .eventTimestamp, .deviceType, .deviceName, .appVersion:
+            case .eventName, .eventTimestamp, .sessionId, .deviceType, .deviceName, .appVersion:
                 return true
             default:
                 return false
@@ -57,6 +59,24 @@ public struct TelemetrySchema: Sendable {
                 return "Date/Time"
             case .isEnabled:
                 return "Boolean"
+            }
+        }
+    }
+
+    public enum SettingsBackupField: String, CaseIterable {
+        case telemetryRequested
+        case telemetrySendingEnabled
+        case clientIdentifier
+        case lastUpdated
+
+        public var fieldTypeDescription: String {
+            switch self {
+            case .telemetryRequested, .telemetrySendingEnabled:
+                return "Boolean"
+            case .clientIdentifier:
+                return "String"
+            case .lastUpdated:
+                return "Date/Time"
             }
         }
     }

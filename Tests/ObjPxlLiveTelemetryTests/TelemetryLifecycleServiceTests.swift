@@ -37,8 +37,9 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
-            configuration: .init(distribution: .debug),
-            loggerFactory: { SpyTelemetryLogger() }
+            configuration: .init(),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
 
         await service.enableTelemetry()
@@ -68,8 +69,9 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
-            configuration: .init(distribution: .debug),
-            loggerFactory: { SpyTelemetryLogger() }
+            configuration: .init(),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
 
         await service.enableTelemetry()
@@ -96,8 +98,9 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
-            configuration: .init(distribution: .debug),
-            loggerFactory: { SpyTelemetryLogger() }
+            configuration: .init(),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
 
         await service.enableTelemetry()
@@ -129,8 +132,9 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "abc123"),
-            configuration: .init(distribution: .debug),
-            loggerFactory: { SpyTelemetryLogger() }
+            configuration: .init(),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
 
         let outcome = await service.reconcile()
@@ -162,8 +166,9 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "client-off"),
-            configuration: .init(distribution: .debug),
-            loggerFactory: { SpyTelemetryLogger() }
+            configuration: .init(),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
 
         let outcome = await service.reconcile()
@@ -219,9 +224,21 @@ private struct FixedIdentifierGenerator: TelemetryIdentifierGenerating {
 private actor SpyTelemetryLogger: TelemetryLogging {
     private(set) var events: [String] = []
     private(set) var didShutdown = false
+    private(set) var isEnabled = false
+    private(set) var isActivated = false
+    nonisolated let currentSessionId: String = "test-session-id"
 
     nonisolated func logEvent(name: String, property1: String?) {
         Task { await register(name: name) }
+    }
+
+    func activate(enabled: Bool) async {
+        isActivated = true
+        isEnabled = enabled
+    }
+
+    func setEnabled(_ enabled: Bool) async {
+        isEnabled = enabled
     }
 
     func flush() async {}
@@ -360,4 +377,10 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
     func telemetryClients() async -> [TelemetryClientRecord] {
         clients
     }
+}
+
+private struct MockBackupClient: CloudKitSettingsBackupClientProtocol {
+    func saveSettings(_ settings: TelemetrySettings) async throws {}
+    func loadSettings() async throws -> TelemetrySettings? { nil }
+    func clearSettings() async throws {}
 }

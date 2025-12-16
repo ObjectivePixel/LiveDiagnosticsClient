@@ -5,6 +5,7 @@ struct TelemetryEvent: Sendable {
     let id: UUID
     let name: String
     let timestamp: Date
+    let sessionId: String
     let deviceInfo: DeviceInfo
     let threadId: String
     let property1: String?
@@ -12,6 +13,7 @@ struct TelemetryEvent: Sendable {
     init(
         name: String,
         timestamp: Date,
+        sessionId: String,
         deviceInfo: DeviceInfo,
         threadId: String,
         property1: String? = nil
@@ -19,6 +21,7 @@ struct TelemetryEvent: Sendable {
         self.id = UUID()
         self.name = name
         self.timestamp = timestamp
+        self.sessionId = sessionId
         self.deviceInfo = deviceInfo
         self.threadId = threadId
         self.property1 = property1
@@ -30,6 +33,7 @@ struct TelemetryEvent: Sendable {
         record["eventId"] = id.uuidString
         record["eventName"] = name
         record["eventTimestamp"] = timestamp
+        record["sessionId"] = sessionId
         record["deviceType"] = deviceInfo.deviceType
         record["deviceName"] = deviceInfo.deviceName
         record["deviceModel"] = deviceInfo.deviceModel

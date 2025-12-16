@@ -3,11 +3,15 @@ import Foundation
 import os
 
 public protocol TelemetryLogging: Actor, Sendable {
+    nonisolated var currentSessionId: String { get }
+
     nonisolated func logEvent(
         name: String,
         property1: String?,
     )
 
+    func activate(enabled: Bool) async
+    func setEnabled(_ enabled: Bool) async
     func flush() async
     func shutdown() async
 }
@@ -23,7 +27,6 @@ public extension TelemetryLogging {
         )
     }
 }
-
 
 public actor TelemetryLogger: TelemetryLogging {
     public struct Configuration: Sendable {
@@ -44,23 +47,32 @@ public actor TelemetryLogger: TelemetryLogging {
         )
     }
 
+    private enum LoggerState: Sendable {
+        case initializing
+        case ready(enabled: Bool)
+    }
+
     private let client: CloudKitClient
     private let config: Configuration
     private var flushTask: Task<Void, Never>?
     private var consumeTask: Task<Void, Never>?
     private let deviceInfo: DeviceInfo
     private var pending: [TelemetryEvent] = []
+    private var queuedEvents: [TelemetryEvent] = []
     private var offline = false
     private nonisolated let continuationLock = OSAllocatedUnfairLock<AsyncStream<TelemetryEvent>.Continuation?>(initialState: nil)
     private nonisolated let shutdownLock = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private nonisolated let stateLock = OSAllocatedUnfairLock<LoggerState>(initialState: .initializing)
+    public nonisolated let currentSessionId: String
 
     public init(
         configuration: Configuration = .default,
-        client: CloudKitClient = CloudKitClient(containerIdentifier: "")
+        client: CloudKitClient = CloudKitClient(containerIdentifier: TelemetrySchema.cloudKitContainerIdentifierTelemetry)
     ) {
         self.client = client
         self.config = configuration
         self.deviceInfo = DeviceInfo.current
+        self.currentSessionId = UUID().uuidString
         var continuation: AsyncStream<TelemetryEvent>.Continuation!
         let stream = AsyncStream<TelemetryEvent> { cont in
             continuation = cont
@@ -80,17 +92,57 @@ public actor TelemetryLogger: TelemetryLogging {
         let isShutdown = shutdownLock.withLock { $0 }
         guard !isShutdown else { return }
 
-        let event = TelemetryEvent(
-            name: name,
-            timestamp: Date(),
-            deviceInfo: deviceInfo,
-            threadId: Self.currentThreadId(),
-            property1: property1
-        )
-
-        _ = continuationLock.withLock { continuation in
-            continuation?.yield(event)
+        let state = stateLock.withLock { $0 }
+        switch state {
+        case .initializing:
+            // Queue the event for later processing
+            let event = TelemetryEvent(
+                name: name,
+                timestamp: Date(),
+                sessionId: currentSessionId,
+                deviceInfo: deviceInfo,
+                threadId: Self.currentThreadId(),
+                property1: property1
+            )
+            Task { await self.queueEvent(event) }
+        case .ready(enabled: false):
+            // Discard - telemetry is disabled
+            return
+        case .ready(enabled: true):
+            // Normal path - process the event
+            let event = TelemetryEvent(
+                name: name,
+                timestamp: Date(),
+                sessionId: currentSessionId,
+                deviceInfo: deviceInfo,
+                threadId: Self.currentThreadId(),
+                property1: property1
+            )
+            _ = continuationLock.withLock { continuation in
+                continuation?.yield(event)
+            }
         }
+    }
+
+    private func queueEvent(_ event: TelemetryEvent) {
+        queuedEvents.append(event)
+    }
+
+    public func activate(enabled: Bool) async {
+        if enabled {
+            // Flush queued events to pending
+            for event in queuedEvents {
+                _ = continuationLock.withLock { continuation in
+                    continuation?.yield(event)
+                }
+            }
+        }
+        queuedEvents.removeAll()
+        stateLock.withLock { $0 = .ready(enabled: enabled) }
+    }
+
+    public func setEnabled(_ enabled: Bool) async {
+        stateLock.withLock { $0 = .ready(enabled: enabled) }
     }
 
     public func flush() async {

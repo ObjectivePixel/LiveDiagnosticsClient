@@ -31,6 +31,12 @@ fi
 SCHEMA_FILE="${SCHEMA_FILE:-$(mktemp -t telemetry-schema)}"
 
 # CloudKit schema DSL (same format as cktool export-schema).
+# Note: TelemetryEvent and TelemetryClient are PUBLIC database records.
+# TelemetrySettingsBackup is a PRIVATE database record (per-user backup).
+#
+# IMPORTANT: This script imports to the PUBLIC database by default.
+# For TelemetrySettingsBackup (private database), the schema is auto-created
+# when the app first writes to it. No manual setup needed for private records.
 cat > "$SCHEMA_FILE" <<'SCHEMA'
 DEFINE SCHEMA
 
@@ -38,6 +44,7 @@ DEFINE SCHEMA
         eventId          STRING,
         eventName        STRING QUERYABLE SEARCHABLE SORTABLE,
         eventTimestamp   TIMESTAMP QUERYABLE SORTABLE,
+        sessionId        STRING QUERYABLE SEARCHABLE SORTABLE,
         deviceType       STRING QUERYABLE SEARCHABLE SORTABLE,
         deviceName       STRING QUERYABLE SEARCHABLE SORTABLE,
         deviceModel      STRING,
