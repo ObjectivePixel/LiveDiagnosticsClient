@@ -221,20 +221,22 @@ public struct CloudKitClient: CloudKitClientProtocol {
         created: Date? = nil,
         isEnabled: Bool? = nil
     ) async throws -> TelemetryClientRecord {
-        let existing = try await database.record(for: recordID)
-        guard existing.recordType == TelemetrySchema.clientRecordType else {
-            throw TelemetryClientRecord.Error.unexpectedRecordType(existing.recordType)
+        let existingRecord = try await database.record(for: recordID)
+        guard existingRecord.recordType == TelemetrySchema.clientRecordType else {
+            throw TelemetryClientRecord.Error.unexpectedRecordType(existingRecord.recordType)
         }
 
-        let current = try TelemetryClientRecord(record: existing)
+        let current = try TelemetryClientRecord(record: existingRecord)
         let updated = TelemetryClientRecord(
             recordID: recordID,
             clientId: clientId ?? current.clientId,
             created: created ?? current.created,
             isEnabled: isEnabled ?? current.isEnabled
         )
-        let saved = try await database.save(updated.toCKRecord())
-        return try TelemetryClientRecord(record: saved)
+
+        let savedRecord = try await database.save(updated.applying(to: existingRecord))
+
+        return try TelemetryClientRecord(record: savedRecord)
     }
 
     public func updateTelemetryClient(_ telemetryClient: TelemetryClientRecord) async throws -> TelemetryClientRecord {
