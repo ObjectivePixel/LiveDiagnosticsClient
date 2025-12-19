@@ -143,30 +143,18 @@ public final class TelemetryLifecycleService {
 
         do {
             let existingClients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
-            if let existing = existingClients.first, let recordID = existing.recordID {
-                clientRecord = try await cloudKitClient.updateTelemetryClient(
-                    recordID: recordID,
-                    clientId: existing.clientId,
-                    created: existing.created,
-                    isEnabled: true
-                )
+            if let existing = existingClients.first {
+                // Use existing client record as-is (don't modify isEnabled - only admin tool should do that)
+                clientRecord = existing
             } else {
                 do {
+                    // Create client record with isEnabled = false; admin tool will enable it
                     let pendingRecord = try await cloudKitClient.createTelemetryClient(
                         clientId: identifier,
                         created: .now,
                         isEnabled: false
                     )
                     clientRecord = pendingRecord
-
-                    if let recordID = pendingRecord.recordID {
-                        clientRecord = try await cloudKitClient.updateTelemetryClient(
-                            recordID: recordID,
-                            clientId: pendingRecord.clientId,
-                            created: pendingRecord.created,
-                            isEnabled: true
-                        )
-                    }
                 } catch {
                     // Handle various CloudKit conflict errors that indicate record already exists
                     if let ckError = error as? CKError,
@@ -183,11 +171,17 @@ public final class TelemetryLifecycleService {
                 }
             }
 
-            currentSettings.telemetrySendingEnabled = true
-            settings = await saveAndBackupSettings(currentSettings)
-
-            reconciliation = .localAndServerEnabled
-            setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
+            // Only enable local sending if the server has isEnabled = true (set by admin tool)
+            let serverEnabled = clientRecord?.isEnabled ?? false
+            if serverEnabled {
+                currentSettings.telemetrySendingEnabled = true
+                settings = await saveAndBackupSettings(currentSettings)
+                reconciliation = .localAndServerEnabled
+                setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
+            } else {
+                reconciliation = .allDisabled
+                setStatus(.disabled, message: "Telemetry requested. Waiting for admin approval. Client ID: \(identifier)")
+            }
             await updateLoggerEnabled()
         } catch {
             let description = error.localizedDescription
@@ -295,16 +289,9 @@ private extension TelemetryLifecycleService {
     }
 
     func recoverExistingClient(identifier: String) async throws -> TelemetryClientRecord? {
+        // Just fetch the existing client as-is (don't modify isEnabled - only admin tool should do that)
         let clients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
-        guard let existing = clients.first, let recordID = existing.recordID else {
-            return nil
-        }
-        return try await cloudKitClient.updateTelemetryClient(
-            recordID: recordID,
-            clientId: existing.clientId,
-            created: existing.created,
-            isEnabled: true
-        )
+        return clients.first
     }
 
     func updateLoggerEnabled() async {

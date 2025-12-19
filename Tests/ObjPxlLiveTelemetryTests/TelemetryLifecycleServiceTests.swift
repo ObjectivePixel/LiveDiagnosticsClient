@@ -45,14 +45,16 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         await service.enableTelemetry()
 
         XCTAssertTrue(service.settings.telemetryRequested)
-        XCTAssertTrue(service.settings.telemetrySendingEnabled)
+        // telemetrySendingEnabled should be false until admin enables the client
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
         XCTAssertEqual(service.settings.clientIdentifier, "sampleid01")
 
         let clients = await cloudKit.telemetryClients()
         XCTAssertEqual(clients.count, 1)
         let client = try XCTUnwrap(clients.first)
         XCTAssertEqual(client.clientId, "sampleid01")
-        XCTAssertTrue(client.isEnabled)
+        // Client should be created with isEnabled = false; admin tool enables it
+        XCTAssertFalse(client.isEnabled)
         XCTAssertNotNil(service.telemetryLogger as? SpyTelemetryLogger)
     }
 
@@ -80,8 +82,10 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(clients.count, 1)
         let client = try XCTUnwrap(clients.first)
         XCTAssertEqual(client.recordID, existing.recordID)
-        XCTAssertTrue(client.isEnabled)
-        XCTAssertTrue(service.settings.telemetrySendingEnabled)
+        // Client should not modify isEnabled - only admin tool does that
+        XCTAssertFalse(client.isEnabled)
+        // telemetrySendingEnabled should be false since server has isEnabled = false
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
     }
 
     func testEnableRecoversFromServerRecordChanged() async throws {
@@ -108,8 +112,10 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         let clients = await cloudKit.telemetryClients()
         XCTAssertEqual(clients.count, 1)
         let client = try XCTUnwrap(clients.first)
-        XCTAssertTrue(client.isEnabled)
-        XCTAssertTrue(service.settings.telemetrySendingEnabled)
+        // Recovery should just fetch the existing client, not enable it
+        XCTAssertFalse(client.isEnabled)
+        // telemetrySendingEnabled should be false since server has isEnabled = false
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
     }
 
     func testReconcileEnablesLocalSendingWhenServerOn() async throws {
