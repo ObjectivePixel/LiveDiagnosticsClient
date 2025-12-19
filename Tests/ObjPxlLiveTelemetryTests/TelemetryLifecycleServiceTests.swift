@@ -118,6 +118,71 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertFalse(service.settings.telemetrySendingEnabled)
     }
 
+    func testDisableTelemetryDeletesClientRecord() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "delete-test"),
+            configuration: .init(),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+        )
+
+        // Enable telemetry (creates client with isEnabled = false)
+        await service.enableTelemetry()
+
+        // Verify client was created
+        var clients = await cloudKit.telemetryClients()
+        XCTAssertEqual(clients.count, 1)
+        XCTAssertEqual(clients.first?.clientId, "delete-test")
+
+        // Disable telemetry
+        await service.disableTelemetry()
+
+        // Verify client was deleted
+        clients = await cloudKit.telemetryClients()
+        XCTAssertEqual(clients.count, 0, "TelemetryClientRecord should be deleted when telemetry is disabled")
+        XCTAssertEqual(service.settings, .defaults)
+    }
+
+    func testPendingApprovalPersistsAcrossReconcile() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "pending-test"),
+            configuration: .init(),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+        )
+
+        // Enable telemetry (creates client with isEnabled = false, waiting for admin)
+        await service.enableTelemetry()
+
+        // Verify initial state
+        XCTAssertTrue(service.settings.telemetryRequested)
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
+        XCTAssertEqual(service.settings.clientIdentifier, "pending-test")
+
+        // Simulate app restart by calling reconcile (which happens on startup)
+        let outcome = await service.reconcile()
+
+        // Should still be pending approval, not reset
+        XCTAssertEqual(outcome, .pendingApproval)
+        XCTAssertTrue(service.settings.telemetryRequested, "telemetryRequested should persist")
+        XCTAssertEqual(service.settings.clientIdentifier, "pending-test", "clientIdentifier should persist")
+        XCTAssertEqual(service.status, .pendingApproval)
+
+        // Client record should still exist
+        let clients = await cloudKit.telemetryClients()
+        XCTAssertEqual(clients.count, 1)
+    }
+
     func testReconcileEnablesLocalSendingWhenServerOn() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()

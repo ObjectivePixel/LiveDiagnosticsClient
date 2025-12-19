@@ -194,6 +194,8 @@ private struct TelemetryStatusRow: View {
             return "Telemetry sending"
         case .disabled:
             return "Telemetry disabled"
+        case .pendingApproval:
+            return "Pending approval"
         case .error:
             return "Error"
         }

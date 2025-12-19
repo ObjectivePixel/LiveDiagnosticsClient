@@ -11,6 +11,7 @@ public final class TelemetryLifecycleService {
         case syncing
         case enabled
         case disabled
+        case pendingApproval
         case error(String)
     }
 
@@ -20,6 +21,7 @@ public final class TelemetryLifecycleService {
         case serverDisabledLocalEnabled
         case allDisabled
         case missingClient
+        case pendingApproval
     }
 
     public struct Configuration: Sendable {
@@ -261,17 +263,28 @@ public final class TelemetryLifecycleService {
                 _ = await disableTelemetry(reason: outcome)
                 return outcome
             case (false, false):
-                outcome = clients.isEmpty ? .missingClient : .allDisabled
-                currentSettings = .defaults
-                clientRecord = nil
-                settings = await resetAndClearBackup()
+                if clients.isEmpty {
+                    // No client record exists - reset everything
+                    outcome = .missingClient
+                    currentSettings = .defaults
+                    clientRecord = nil
+                    settings = await resetAndClearBackup()
+                } else {
+                    // Client exists but not yet enabled by admin - keep requested state
+                    outcome = .pendingApproval
+                }
             }
 
             reconciliation = outcome
-            setStatus(
-                settings.telemetrySendingEnabled ? .enabled : .disabled,
-                message: statusMessage(for: outcome, identifier: identifier)
-            )
+            let status: Status = switch outcome {
+            case .localAndServerEnabled, .serverEnabledLocalDisabled:
+                .enabled
+            case .pendingApproval:
+                .pendingApproval
+            default:
+                .disabled
+            }
+            setStatus(status, message: statusMessage(for: outcome, identifier: identifier))
             await updateLoggerEnabled()
             return outcome
         } catch {
@@ -329,6 +342,8 @@ private extension TelemetryLifecycleService {
             return "Telemetry is disabled."
         case .missingClient:
             return "No client found on server. Telemetry is paused."
+        case .pendingApproval:
+            return "Telemetry requested. Waiting for admin approval. Client ID: \(identifier)"
         }
     }
 }
