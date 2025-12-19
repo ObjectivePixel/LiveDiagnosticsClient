@@ -1,13 +1,13 @@
 //
-//  LiveDiagTestAppUITestsLaunchTests.swift
-//  LiveDiagTestAppUITests
+//  Live_Diagnostics_Example_ClientUITestsLaunchTests.swift
+//  Live Diagnostics Example ClientUITests
 //
-//  Created by James Clarke on 12/7/25.
+//  Created by James Clarke on 12/19/25.
 //
 
 import XCTest
 
-final class LiveDiagTestAppUITestsLaunchTests: XCTestCase {
+final class Live_Diagnostics_Example_ClientUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

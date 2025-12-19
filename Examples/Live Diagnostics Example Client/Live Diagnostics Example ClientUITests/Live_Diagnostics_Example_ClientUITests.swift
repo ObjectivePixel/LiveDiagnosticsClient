@@ -1,13 +1,13 @@
 //
-//  LiveDiagTestAppUITests.swift
-//  LiveDiagTestAppUITests
+//  Live_Diagnostics_Example_ClientUITests.swift
+//  Live Diagnostics Example ClientUITests
 //
-//  Created by James Clarke on 12/7/25.
+//  Created by James Clarke on 12/19/25.
 //
 
 import XCTest
 
-final class LiveDiagTestAppUITests: XCTestCase {
+final class Live_Diagnostics_Example_ClientUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.
