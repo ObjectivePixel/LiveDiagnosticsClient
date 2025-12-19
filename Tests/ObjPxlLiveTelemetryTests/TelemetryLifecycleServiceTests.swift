@@ -199,12 +199,13 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             isEnabled: true
         )
 
+        let spyLogger = SpyTelemetryLogger()
         let service = TelemetryLifecycleService(
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "abc123"),
             configuration: .init(),
-            logger: SpyTelemetryLogger(),
+            logger: spyLogger,
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
 
@@ -212,6 +213,10 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
 
         XCTAssertEqual(outcome, .serverEnabledLocalDisabled)
         XCTAssertTrue(service.settings.telemetrySendingEnabled)
+
+        // Verify the logger was enabled
+        let loggerEnabled = await spyLogger.isEnabled
+        XCTAssertTrue(loggerEnabled, "Logger should be enabled after admin approval")
     }
 
     func testReconcileDisablesWhenServerOff() async throws {

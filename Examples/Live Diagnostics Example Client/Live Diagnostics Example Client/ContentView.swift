@@ -46,21 +46,36 @@ private struct TestEventSection: View {
         VStack(alignment: .leading) {
             Text("Verify telemetry")
                 .font(.headline)
-            Button("Send Test Telemetry", systemImage: "paperplane") {
-                let timestamp = Date()
-                telemetryLogger.logEvent(
-                    name: "test_button_tap",
-                    property1: "timestamp=\(timestamp.ISO8601Format())"
-                )
-                lastEvent = "Logged test_button_tap at \(timestamp.formatted(date: .omitted, time: .standard))"
+
+            HStack {
+                Button("Send Test Event", systemImage: "paperplane") {
+                    let timestamp = Date()
+                    telemetryLogger.logEvent(
+                        name: "test_button_tap",
+                        property1: "timestamp=\(timestamp.ISO8601Format())"
+                    )
+                    lastEvent = "Logged test_button_tap at \(timestamp.formatted(date: .omitted, time: .standard))"
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Flush Events", systemImage: "arrow.up.circle") {
+                    Task {
+                        await telemetryLogger.flush()
+                        lastEvent = "Events flushed at \(Date().formatted(date: .omitted, time: .standard))"
+                    }
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
 
             if let lastEvent {
                 Text(lastEvent)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
             }
+
+            Text("Events are batched (10) and flushed every 30s, or tap Flush to send immediately.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 }
