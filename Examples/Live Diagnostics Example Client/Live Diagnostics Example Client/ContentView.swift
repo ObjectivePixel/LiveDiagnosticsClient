@@ -36,6 +36,12 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environment(
+            \.telemetryLifecycle,
+            TelemetryLifecycleService(
+                configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
+            )
+        )
 }
 
 private struct TestEventSection: View {
