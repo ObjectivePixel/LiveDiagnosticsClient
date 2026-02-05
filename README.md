@@ -12,7 +12,7 @@ With a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/objectivepixel/ObjPxlLiveTelemetry.git", from: "1.0.0")
+    .package(url: "https://github.com/ObjectivePixel/LiveDiagnosticsClient.git", from: "0.0.1")
 ]
 ```
 
