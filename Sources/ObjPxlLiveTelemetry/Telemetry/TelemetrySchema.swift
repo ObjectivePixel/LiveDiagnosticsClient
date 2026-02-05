@@ -5,7 +5,6 @@ public struct TelemetrySchema: Sendable {
     public static let recordType = "TelemetryEvent"
     public static let clientRecordType = "TelemetryClient"
     public static let settingsBackupRecordType = "TelemetrySettingsBackup"
-    public static let cloudKitContainerIdentifierTelemetry = "iCloud.objpxl.example.telemetry"
 
     public enum Field: String, CaseIterable {
         case eventId

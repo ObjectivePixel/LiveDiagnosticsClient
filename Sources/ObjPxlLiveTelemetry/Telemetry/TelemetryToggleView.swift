@@ -208,6 +208,11 @@ private struct TelemetryStatusRow: View {
 
 #Preview {
     TelemetryToggleView()
-        .environment(\.telemetryLifecycle, TelemetryLifecycleService())
+        .environment(
+            \.telemetryLifecycle,
+            TelemetryLifecycleService(
+                configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
+            )
+        )
         .padding()
 }

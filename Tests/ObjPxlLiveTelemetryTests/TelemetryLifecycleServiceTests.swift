@@ -37,7 +37,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
-            configuration: .init(),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
@@ -71,7 +71,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
-            configuration: .init(),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
@@ -102,7 +102,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
-            configuration: .init(),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
@@ -126,7 +126,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "delete-test"),
-            configuration: .init(),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
@@ -156,7 +156,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "pending-test"),
-            configuration: .init(),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
@@ -204,7 +204,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "abc123"),
-            configuration: .init(),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: spyLogger,
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )
@@ -242,7 +242,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "client-off"),
-            configuration: .init(),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
         )

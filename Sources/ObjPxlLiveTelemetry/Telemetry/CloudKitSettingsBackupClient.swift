@@ -13,8 +13,8 @@ public struct CloudKitSettingsBackupClient: CloudKitSettingsBackupClientProtocol
     private static let recordType = TelemetrySchema.settingsBackupRecordType
     private static let fixedRecordName = "TelemetrySettingsBackup"
 
-    public init(containerIdentifier: String? = TelemetrySchema.cloudKitContainerIdentifierTelemetry) {
-        let resolvedContainer = containerIdentifier.map { CKContainer(identifier: $0) } ?? .default()
+    public init(containerIdentifier: String) {
+        let resolvedContainer = CKContainer(identifier: containerIdentifier)
         self.container = resolvedContainer
         self.database = resolvedContainer.privateCloudDatabase
     }

@@ -39,8 +39,7 @@ import SwiftUI
 struct MyApp: App {
     private let telemetryLifecycle = TelemetryLifecycleService(
         configuration: .init(
-            distribution: .debug,
-            containerIdentifier: TelemetrySchema.cloudKitContainerIdentifierTelemetry
+            containerIdentifier: "iCloud.com.yourcompany.yourapp.telemetry"
         )
     )
 

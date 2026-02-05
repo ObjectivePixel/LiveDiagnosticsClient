@@ -41,13 +41,11 @@ public struct CloudKitClient: CloudKitClientProtocol {
     public let database: CKDatabase
     public let identifier: String
 
-    public init(
-        containerIdentifier: String? = CKContainer.default().containerIdentifier
-    ) {
-        let resolvedContainer = containerIdentifier.map { CKContainer(identifier: $0) } ?? .default()
+    public init(containerIdentifier: String) {
+        let resolvedContainer = CKContainer(identifier: containerIdentifier)
         container = resolvedContainer
         database = resolvedContainer.publicCloudDatabase
-        identifier = containerIdentifier ?? resolvedContainer.containerIdentifier ?? "unknown"
+        identifier = containerIdentifier
     }
 
     public func validateSchema() async -> Bool {

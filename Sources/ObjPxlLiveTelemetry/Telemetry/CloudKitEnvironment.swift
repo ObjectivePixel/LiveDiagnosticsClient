@@ -2,7 +2,9 @@ import SwiftUI
 
 private struct CloudKitClientKey: EnvironmentKey {
     typealias Value = CloudKitClient
-    static let defaultValue = CloudKitClient()
+    static var defaultValue: CloudKitClient {
+        preconditionFailure("CloudKitClient must be injected via .environment(\\.cloudKitClient, client)")
+    }
 }
 
 public extension EnvironmentValues {

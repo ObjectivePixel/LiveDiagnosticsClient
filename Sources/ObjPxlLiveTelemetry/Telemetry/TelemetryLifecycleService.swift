@@ -25,11 +25,11 @@ public final class TelemetryLifecycleService {
     }
 
     public struct Configuration: Sendable {
-        public var containerIdentifier: String?
+        public var containerIdentifier: String
         public var loggerConfiguration: TelemetryLogger.Configuration
 
         public init(
-            containerIdentifier: String? = TelemetrySchema.cloudKitContainerIdentifierTelemetry,
+            containerIdentifier: String,
             loggerConfiguration: TelemetryLogger.Configuration = .default
         ) {
             self.containerIdentifier = containerIdentifier
@@ -57,7 +57,7 @@ public final class TelemetryLifecycleService {
         settingsStore: any TelemetrySettingsStoring = UserDefaultsTelemetrySettingsStore(),
         cloudKitClient: CloudKitClientProtocol? = nil,
         identifierGenerator: any TelemetryIdentifierGenerating = TelemetryIdentifierGenerator(),
-        configuration: Configuration = .init(),
+        configuration: Configuration,
         logger: (any TelemetryLogging)? = nil,
         syncCoordinator: TelemetrySettingsSyncCoordinator? = nil
     ) {

@@ -26,8 +26,8 @@ public actor TelemetrySettingsSyncCoordinator {
 
     private let backupClient: CloudKitSettingsBackupClientProtocol
 
-    public init(backupClient: CloudKitSettingsBackupClientProtocol? = nil) {
-        self.backupClient = backupClient ?? CloudKitSettingsBackupClient()
+    public init(backupClient: CloudKitSettingsBackupClientProtocol) {
+        self.backupClient = backupClient
     }
 
     public func restoreSettingsFromBackup() async -> RestoreState {

@@ -67,7 +67,7 @@ public actor TelemetryLogger: TelemetryLogging {
 
     public init(
         configuration: Configuration = .default,
-        client: CloudKitClient = CloudKitClient(containerIdentifier: TelemetrySchema.cloudKitContainerIdentifierTelemetry)
+        client: CloudKitClient
     ) {
         self.client = client
         self.config = configuration
@@ -231,4 +231,17 @@ public actor TelemetryLogger: TelemetryLogging {
         return String(Thread.current.hashValue)
         #endif
     }
+}
+
+/// A no-op logger that discards all events. Used as a default environment value.
+public actor NoopTelemetryLogger: TelemetryLogging {
+    public nonisolated let currentSessionId: String = ""
+
+    public init() {}
+
+    public nonisolated func logEvent(name: String, property1: String?) {}
+    public func activate(enabled: Bool) async {}
+    public func setEnabled(_ enabled: Bool) async {}
+    public func flush() async {}
+    public func shutdown() async {}
 }
