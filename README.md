@@ -16,7 +16,16 @@ dependencies: [
 ]
 ```
 
-Then add `ObjPxlLiveTelemetry` to your target dependencies.
+Then add `ObjPxlLiveTelemetry` to your target's dependencies:
+
+```swift
+.target(
+    name: "YourTarget",
+    dependencies: [
+        .product(name: "ObjPxlLiveTelemetry", package: "LiveDiagnosticsClient")
+    ]
+)
+```
 
 ## SwiftUI Telemetry Toggle
 
