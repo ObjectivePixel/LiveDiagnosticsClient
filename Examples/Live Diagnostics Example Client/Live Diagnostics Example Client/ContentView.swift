@@ -9,14 +9,14 @@ import SwiftUI
 import ObjPxlLiveTelemetry
 
 struct ContentView: View {
-    @Environment(\.telemetryLifecycle) private var telemetryLifecycle
+    let telemetryLifecycle: TelemetryLifecycleService
     @State private var lastEvent: String?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading) {
-                    TelemetryToggleView()
+                    TelemetryToggleView(lifecycle: telemetryLifecycle)
                     Divider()
                     TestEventSection(
                         telemetryLogger: telemetryLogger,
@@ -35,13 +35,11 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
-        .environment(
-            \.telemetryLifecycle,
-            TelemetryLifecycleService(
-                configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
-            )
+    ContentView(
+        telemetryLifecycle: TelemetryLifecycleService(
+            configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
         )
+    )
 }
 
 private struct TestEventSection: View {

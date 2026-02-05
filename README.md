@@ -29,7 +29,7 @@ Then add `ObjPxlLiveTelemetry` to your target's dependencies:
 
 ## SwiftUI Telemetry Toggle
 
-Expose the lifecycle service and toggle view to let users opt into diagnostics and keep CloudKit in sync:
+Create the lifecycle service and pass it to the toggle view to let users opt into diagnostics:
 
 ```swift
 import ObjPxlLiveTelemetry
@@ -46,17 +46,15 @@ struct MyApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                TelemetryToggleView()
+                TelemetryToggleView(lifecycle: telemetryLifecycle)
             }
-            .environment(\.telemetryLifecycle, telemetryLifecycle)
-            .environment(\.telemetryLogger, telemetryLifecycle.telemetryLogger)
         }
     }
 }
 ```
 
 - The toggle view loads stored preferences, reconciles with CloudKit, and shows the generated client ID once telemetry is enabled.
-- Logging is performed through `telemetryLifecycle.telemetryLogger`. When telemetry is disabled, a `NoopTelemetryLogger` is injected to prevent emission.
+- Logging is performed through `telemetryLifecycle.telemetryLogger`. When telemetry is disabled, events are discarded.
 
 ### Settings keys and identifiers
 

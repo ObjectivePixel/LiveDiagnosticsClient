@@ -1,12 +1,14 @@
 import SwiftUI
 
 public struct TelemetryToggleView: View {
-    @Environment(\.telemetryLifecycle) private var lifecycle
+    private let lifecycle: TelemetryLifecycleService
     @State private var viewState: ViewState = .idle
     @State private var isTelemetryRequested = false
     @State private var didBootstrap = false
 
-    public init() {}
+    public init(lifecycle: TelemetryLifecycleService) {
+        self.lifecycle = lifecycle
+    }
 
     public var body: some View {
         VStack(alignment: .leading) {
@@ -207,12 +209,10 @@ private struct TelemetryStatusRow: View {
 }
 
 #Preview {
-    TelemetryToggleView()
-        .environment(
-            \.telemetryLifecycle,
-            TelemetryLifecycleService(
-                configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
-            )
+    TelemetryToggleView(
+        lifecycle: TelemetryLifecycleService(
+            configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
         )
-        .padding()
+    )
+    .padding()
 }

@@ -16,8 +16,7 @@ struct Live_Diagnostics_Example_ClientApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(\.telemetryLifecycle, telemetryLifecycle)
+            ContentView(telemetryLifecycle: telemetryLifecycle)
         }
     }
 }
