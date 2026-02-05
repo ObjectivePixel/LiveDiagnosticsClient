@@ -34,7 +34,9 @@ public struct TelemetryToggleView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(identifier)
+                        #if !os(watchOS)
                             .textSelection(.enabled)
+                        #endif
                     }
                 } icon: {
                     Image(systemName: "person.text.rectangle")
@@ -48,7 +50,9 @@ public struct TelemetryToggleView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(sessionId)
+                            #if !os(watchOS)
                                 .textSelection(.enabled)
+                            #endif
                         }
                     } icon: {
                         Image(systemName: "clock.badge.checkmark")
