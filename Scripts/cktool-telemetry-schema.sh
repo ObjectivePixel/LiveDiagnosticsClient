@@ -40,60 +40,87 @@ SCHEMA_FILE="${SCHEMA_FILE:-$(mktemp -t telemetry-schema)}"
 cat > "$SCHEMA_FILE" <<'SCHEMA'
 DEFINE SCHEMA
 
-    RECORD TYPE TelemetryEvent (
-        eventId          STRING,
-        eventName        STRING QUERYABLE SEARCHABLE SORTABLE,
-        eventTimestamp   TIMESTAMP QUERYABLE SORTABLE,
-        sessionId        STRING QUERYABLE SEARCHABLE SORTABLE,
-        deviceType       STRING QUERYABLE SEARCHABLE SORTABLE,
-        deviceName       STRING QUERYABLE SEARCHABLE SORTABLE,
-        deviceModel      STRING,
-        osVersion        STRING,
-        appVersion       STRING QUERYABLE SEARCHABLE SORTABLE,
-        threadId         STRING,
-        property1        STRING,
-        "___createTime"  TIMESTAMP,
-        "___createdBy"   REFERENCE,
-        "___etag"        STRING,
-        "___modTime"     TIMESTAMP,
-        "___modifiedBy"  REFERENCE,
-        "___recordID"    REFERENCE QUERYABLE,
-        GRANT WRITE TO "_creator",
-        GRANT CREATE TO "_icloud",
-        GRANT READ TO "_world"
-    );
-
     RECORD TYPE TelemetryClient (
-        clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
-        created         TIMESTAMP QUERYABLE SORTABLE,
-        isEnabled       INT64 QUERYABLE SORTABLE,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
+        clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
+        created         TIMESTAMP QUERYABLE SORTABLE,
+        isEnabled       INT64 QUERYABLE SORTABLE,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
 
     RECORD TYPE TelemetryCommand (
-        commandId       STRING QUERYABLE SEARCHABLE SORTABLE,
-        clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
-        action          STRING,
-        created         TIMESTAMP QUERYABLE SORTABLE,
-        status          STRING QUERYABLE SEARCHABLE SORTABLE,
-        executedAt      TIMESTAMP,
-        errorMessage    STRING,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
+        action          STRING,
+        clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
+        commandId       STRING QUERYABLE SEARCHABLE SORTABLE,
+        created         TIMESTAMP QUERYABLE SORTABLE,
+        errorMessage    STRING,
+        executedAt      TIMESTAMP,
+        status          STRING QUERYABLE SEARCHABLE SORTABLE,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE TelemetryEvent (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        appVersion      STRING QUERYABLE SEARCHABLE SORTABLE,
+        deviceModel     STRING,
+        deviceName      STRING QUERYABLE SEARCHABLE SORTABLE,
+        deviceType      STRING QUERYABLE SEARCHABLE SORTABLE,
+        eventId         STRING,
+        eventName       STRING QUERYABLE SEARCHABLE SORTABLE,
+        eventTimestamp  TIMESTAMP QUERYABLE SORTABLE,
+        osVersion       STRING,
+        property1       STRING,
+        sessionId       STRING QUERYABLE SEARCHABLE SORTABLE,
+        threadId        STRING,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE TelemetrySettingsBackup (
+        "___createTime"         TIMESTAMP,
+        "___createdBy"          REFERENCE,
+        "___etag"               STRING,
+        "___modTime"            TIMESTAMP,
+        "___modifiedBy"         REFERENCE,
+        "___recordID"           REFERENCE QUERYABLE,
+        clientIdentifier        STRING,
+        lastUpdated             TIMESTAMP,
+        telemetryRequested      INT64,
+        telemetrySendingEnabled INT64,
+        GRANT READ, WRITE TO "_creator",
+        GRANT CREATE TO "_icloud"
+    );
+
+    RECORD TYPE Users (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE,
+        roles           LIST<INT64>,
+        GRANT WRITE TO "_creator",
         GRANT READ TO "_world"
     );
 SCHEMA

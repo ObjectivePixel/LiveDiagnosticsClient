@@ -37,7 +37,7 @@ struct ContentView: View {
 #Preview {
     ContentView(
         telemetryLifecycle: TelemetryLifecycleService(
-            configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
+            configuration: .init(containerIdentifier: "iCloud.objpxl.example.telemetry")
         )
     )
 }
