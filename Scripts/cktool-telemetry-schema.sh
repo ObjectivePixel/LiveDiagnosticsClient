@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Creates the TelemetryEvent and TelemetryClient schema via cktool. Requires team id and container id.
+# Creates the TelemetryEvent, TelemetryClient, and TelemetryCommand schema via cktool. Requires team id and container id.
 
 set -euo pipefail
 
@@ -67,6 +67,25 @@ DEFINE SCHEMA
         clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
         created         TIMESTAMP QUERYABLE SORTABLE,
         isEnabled       INT64 QUERYABLE SORTABLE,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE TelemetryCommand (
+        commandId       STRING QUERYABLE SEARCHABLE SORTABLE,
+        clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
+        action          STRING,
+        created         TIMESTAMP QUERYABLE SORTABLE,
+        status          STRING QUERYABLE SEARCHABLE SORTABLE,
+        executedAt      TIMESTAMP,
+        errorMessage    STRING,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,

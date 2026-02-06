@@ -52,6 +52,8 @@ public final class TelemetryLifecycleService {
     private let configuration: Configuration
     private let logger: any TelemetryLogging
     private let syncCoordinator: TelemetrySettingsSyncCoordinator
+    private var commandProcessor: TelemetryCommandProcessor?
+    private var subscriptionManager: (any TelemetrySubscriptionManaging)?
 
     public init(
         settingsStore: any TelemetrySettingsStoring = UserDefaultsTelemetrySettingsStore(),
@@ -59,15 +61,18 @@ public final class TelemetryLifecycleService {
         identifierGenerator: any TelemetryIdentifierGenerating = TelemetryIdentifierGenerator(),
         configuration: Configuration,
         logger: (any TelemetryLogging)? = nil,
-        syncCoordinator: TelemetrySettingsSyncCoordinator? = nil
+        syncCoordinator: TelemetrySettingsSyncCoordinator? = nil,
+        subscriptionManager: (any TelemetrySubscriptionManaging)? = nil
     ) {
+        let resolvedCloudKitClient = cloudKitClient ?? CloudKitClient(containerIdentifier: configuration.containerIdentifier)
         self.settingsStore = settingsStore
-        self.cloudKitClient = cloudKitClient ?? CloudKitClient(containerIdentifier: configuration.containerIdentifier)
+        self.cloudKitClient = resolvedCloudKitClient
         self.identifierGenerator = identifierGenerator
         self.configuration = configuration
         self.syncCoordinator = syncCoordinator ?? TelemetrySettingsSyncCoordinator(
             backupClient: CloudKitSettingsBackupClient(containerIdentifier: configuration.containerIdentifier)
         )
+        self.subscriptionManager = subscriptionManager ?? TelemetrySubscriptionManager(cloudKitClient: resolvedCloudKitClient)
         if let logger {
             self.logger = logger
         } else {
@@ -111,8 +116,11 @@ public final class TelemetryLifecycleService {
         }
 
         // Now reconcile and activate based on final settings
-        if settings.telemetryRequested, settings.clientIdentifier != nil {
+        if settings.telemetryRequested, let identifier = settings.clientIdentifier {
             _ = await reconcile()
+
+            // Set up command processor and subscription if telemetry is requested
+            await setupCommandProcessing(for: identifier)
         } else {
             if settings.telemetryRequested || settings.clientIdentifier != nil {
                 settings = await resetAndClearBackup()
@@ -181,10 +189,13 @@ public final class TelemetryLifecycleService {
                 reconciliation = .localAndServerEnabled
                 setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
             } else {
-                reconciliation = .allDisabled
-                setStatus(.disabled, message: "Telemetry requested. Waiting for admin approval. Client ID: \(identifier)")
+                reconciliation = .pendingApproval
+                setStatus(.pendingApproval, message: "Telemetry requested. Waiting for admin approval. Client ID: \(identifier)")
             }
             await updateLoggerEnabled()
+
+            // Set up command processing and subscription
+            await setupCommandProcessing(for: identifier)
         } catch {
             let description = error.localizedDescription
             reconciliation = nil
@@ -197,6 +208,9 @@ public final class TelemetryLifecycleService {
     @discardableResult
     public func disableTelemetry(reason: ReconciliationResult? = nil) async -> TelemetrySettings {
         setStatus(.syncing, message: "Disabling telemetry…")
+
+        // Unregister subscription first
+        await teardownCommandProcessing()
 
         do {
             if let identifier = settings.clientIdentifier {
@@ -227,6 +241,13 @@ public final class TelemetryLifecycleService {
         }
         setStatus(.disabled, message: message)
         return settings
+    }
+
+    public func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> Bool {
+        guard let processor = commandProcessor else {
+            return false
+        }
+        return await processor.handleRemoteNotification(userInfo)
     }
 
     @discardableResult
@@ -286,6 +307,12 @@ public final class TelemetryLifecycleService {
             }
             setStatus(status, message: statusMessage(for: outcome, identifier: identifier))
             await updateLoggerEnabled()
+
+            // Set up command processing (skips if already set up for this client)
+            if outcome != .missingClient {
+                await setupCommandProcessing(for: identifier)
+            }
+
             return outcome
         } catch {
             let description = error.localizedDescription
@@ -299,6 +326,86 @@ private extension TelemetryLifecycleService {
     func setStatus(_ status: Status, message: String?) {
         self.status = status
         statusMessage = message
+    }
+
+    func setupCommandProcessing(for clientId: String) async {
+        // Create command processor with callbacks
+        let processor = TelemetryCommandProcessor(
+            cloudKitClient: cloudKitClient,
+            clientId: clientId,
+            onEnable: { [weak self] in
+                guard let self else { return }
+                await self.handleEnableCommand()
+            },
+            onDisable: { [weak self] in
+                guard let self else { return }
+                await self.handleDisableCommand()
+            },
+            onDeleteEvents: { [weak self] in
+                guard let self else { return }
+                try await self.handleDeleteEventsCommand()
+            }
+        )
+        commandProcessor = processor
+
+        // Register subscription (graceful degradation if it fails)
+        if let manager = subscriptionManager {
+            do {
+                try await manager.registerSubscription(for: clientId)
+            } catch {
+                print("⚠️ Failed to register command subscription (push notifications may not work): \(error)")
+                // Continue without push - commands will still be processed on reconcile
+            }
+        }
+
+        // Process any pending commands
+        await processor.processCommands()
+    }
+
+    func teardownCommandProcessing() async {
+        commandProcessor = nil
+
+        if let manager = subscriptionManager {
+            do {
+                try await manager.unregisterSubscription()
+            } catch {
+                print("⚠️ Failed to unregister command subscription: \(error)")
+            }
+        }
+    }
+
+    func handleEnableCommand() async {
+        var currentSettings = await settingsStore.load()
+        currentSettings.telemetrySendingEnabled = true
+        settings = await saveAndBackupSettings(currentSettings)
+        await updateLoggerEnabled()
+
+        // Update client record's isEnabled to true (client owns this record)
+        if let recordID = clientRecord?.recordID {
+            do {
+                clientRecord = try await cloudKitClient.updateTelemetryClient(
+                    recordID: recordID,
+                    clientId: nil,
+                    created: nil,
+                    isEnabled: true
+                )
+            } catch {
+                print("⚠️ Failed to update client record isEnabled: \(error)")
+            }
+        }
+
+        reconciliation = .localAndServerEnabled
+        if let identifier = settings.clientIdentifier {
+            setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
+        }
+    }
+
+    func handleDisableCommand() async {
+        _ = await disableTelemetry(reason: .serverDisabledLocalEnabled)
+    }
+
+    func handleDeleteEventsCommand() async throws {
+        _ = try await cloudKitClient.deleteAllRecords()
     }
 
     func recoverExistingClient(identifier: String) async throws -> TelemetryClientRecord? {

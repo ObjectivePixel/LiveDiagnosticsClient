@@ -5,6 +5,7 @@ public struct TelemetrySchema: Sendable {
     public static let recordType = "TelemetryEvent"
     public static let clientRecordType = "TelemetryClient"
     public static let settingsBackupRecordType = "TelemetrySettingsBackup"
+    public static let commandRecordType = "TelemetryCommand"
 
     public enum Field: String, CaseIterable {
         case eventId
@@ -80,9 +81,50 @@ public struct TelemetrySchema: Sendable {
         }
     }
 
+    public enum CommandField: String, CaseIterable {
+        case commandId
+        case clientId = "clientid"
+        case action
+        case created
+        case status
+        case executedAt
+        case errorMessage
+
+        public var isIndexed: Bool {
+            switch self {
+            case .commandId, .clientId, .created, .status:
+                return true
+            case .action, .executedAt, .errorMessage:
+                return false
+            }
+        }
+
+        public var fieldTypeDescription: String {
+            switch self {
+            case .commandId, .clientId, .action, .status, .errorMessage:
+                return "String"
+            case .created, .executedAt:
+                return "Date/Time"
+            }
+        }
+    }
+
+    public enum CommandAction: String, Sendable, CaseIterable {
+        case enable
+        case disable
+        case deleteEvents = "delete_events"
+    }
+
+    public enum CommandStatus: String, Sendable, CaseIterable {
+        case pending
+        case executed
+        case failed
+    }
+
     public static func validateSchema(in database: CKDatabase) async throws {
         try await validate(recordTypeName: recordType, in: database)
         try await validate(recordTypeName: clientRecordType, in: database)
+        try await validate(recordTypeName: commandRecordType, in: database)
     }
 
     private static func validate(recordTypeName: String, in database: CKDatabase) async throws {
@@ -141,6 +183,12 @@ public struct TelemetrySchema: Sendable {
 
         if recordType == Self.clientRecordType {
             return ClientField.allCases
+                .map { "   - \($0.rawValue) (\($0.fieldTypeDescription))\($0.isIndexed ? " ✓ Queryable" : "")" }
+                .joined(separator: "\n")
+        }
+
+        if recordType == Self.commandRecordType {
+            return CommandField.allCases
                 .map { "   - \($0.rawValue) (\($0.fieldTypeDescription))\($0.isIndexed ? " ✓ Queryable" : "")" }
                 .joined(separator: "\n")
         }

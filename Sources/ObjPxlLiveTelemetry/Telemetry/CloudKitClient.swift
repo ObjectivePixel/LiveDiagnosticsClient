@@ -28,6 +28,17 @@ public protocol CloudKitClientProtocol: Sendable {
     func detectEnvironment() async -> String
     func getDebugInfo() async -> DebugInfo
     func deleteAllRecords() async throws -> Int
+
+    // Command CRUD
+    func createCommand(_ command: TelemetryCommandRecord) async throws -> TelemetryCommandRecord
+    func fetchPendingCommands(for clientId: String) async throws -> [TelemetryCommandRecord]
+    func updateCommandStatus(recordID: CKRecord.ID, status: TelemetrySchema.CommandStatus, executedAt: Date?, errorMessage: String?) async throws -> TelemetryCommandRecord
+    func deleteCommand(recordID: CKRecord.ID) async throws
+
+    // Subscription management
+    func createCommandSubscription(for clientId: String) async throws -> CKSubscription.ID
+    func removeCommandSubscription(_ subscriptionID: CKSubscription.ID) async throws
+    func fetchCommandSubscription(for clientId: String) async throws -> CKSubscription.ID?
 }
 
 public extension CloudKitClientProtocol {
@@ -545,5 +556,147 @@ public struct CloudKitClient: CloudKitClientProtocol {
 
         print("✅ Successfully deleted \(totalDeleted) records")
         return totalDeleted
+    }
+
+    // MARK: - Commands
+
+    public func createCommand(_ command: TelemetryCommandRecord) async throws -> TelemetryCommandRecord {
+        let savedRecord = try await database.save(command.toCKRecord())
+        return try TelemetryCommandRecord(record: savedRecord)
+    }
+
+    public func fetchPendingCommands(for clientId: String) async throws -> [TelemetryCommandRecord] {
+        let predicate = NSPredicate(
+            format: "%K == %@ AND %K == %@",
+            TelemetrySchema.CommandField.clientId.rawValue,
+            clientId,
+            TelemetrySchema.CommandField.status.rawValue,
+            TelemetrySchema.CommandStatus.pending.rawValue
+        )
+
+        let query = CKQuery(recordType: TelemetrySchema.commandRecordType, predicate: predicate)
+        query.sortDescriptors = [NSSortDescriptor(key: TelemetrySchema.CommandField.created.rawValue, ascending: true)]
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var allCommands: [TelemetryCommandRecord] = []
+            var didResume = false
+
+            func resume(with result: Result<[TelemetryCommandRecord], Error>) {
+                guard !didResume else { return }
+                didResume = true
+                switch result {
+                case .success(let commands):
+                    continuation.resume(returning: commands)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            func configure(operation: CKQueryOperation) {
+                operation.resultsLimit = CKQueryOperation.maximumResults
+                operation.qualityOfService = .userInitiated
+
+                operation.recordMatchedBlock = { recordID, result in
+                    switch result {
+                    case .success(let record):
+                        do {
+                            let command = try TelemetryCommandRecord(record: record)
+                            allCommands.append(command)
+                        } catch {
+                            print("❌ Failed to parse command record \(recordID): \(error)")
+                        }
+                    case .failure(let error):
+                        print("❌ Failed to fetch command record \(recordID): \(error)")
+                    }
+                }
+
+                operation.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        if let cursor {
+                            let nextOperation = CKQueryOperation(cursor: cursor)
+                            configure(operation: nextOperation)
+                            self.database.add(nextOperation)
+                        } else {
+                            resume(with: .success(allCommands))
+                        }
+                    case .failure(let error):
+                        resume(with: .failure(error))
+                    }
+                }
+            }
+
+            let operation = CKQueryOperation(query: query)
+            configure(operation: operation)
+            database.add(operation)
+        }
+    }
+
+    public func updateCommandStatus(
+        recordID: CKRecord.ID,
+        status: TelemetrySchema.CommandStatus,
+        executedAt: Date?,
+        errorMessage: String?
+    ) async throws -> TelemetryCommandRecord {
+        let existingRecord = try await database.record(for: recordID)
+        guard existingRecord.recordType == TelemetrySchema.commandRecordType else {
+            throw TelemetryCommandRecord.Error.unexpectedRecordType(existingRecord.recordType)
+        }
+
+        existingRecord[TelemetrySchema.CommandField.status.rawValue] = status.rawValue as CKRecordValue
+        existingRecord[TelemetrySchema.CommandField.executedAt.rawValue] = executedAt as CKRecordValue?
+        existingRecord[TelemetrySchema.CommandField.errorMessage.rawValue] = errorMessage as CKRecordValue?
+
+        let savedRecord = try await database.save(existingRecord)
+        return try TelemetryCommandRecord(record: savedRecord)
+    }
+
+    public func deleteCommand(recordID: CKRecord.ID) async throws {
+        _ = try await database.deleteRecord(withID: recordID)
+    }
+
+    // MARK: - Subscriptions
+
+    private static func commandSubscriptionID(for clientId: String) -> CKSubscription.ID {
+        "TelemetryCommand-\(clientId)"
+    }
+
+    public func createCommandSubscription(for clientId: String) async throws -> CKSubscription.ID {
+        let predicate = NSPredicate(
+            format: "%K == %@ AND %K == %@",
+            TelemetrySchema.CommandField.clientId.rawValue,
+            clientId,
+            TelemetrySchema.CommandField.status.rawValue,
+            TelemetrySchema.CommandStatus.pending.rawValue
+        )
+
+        let subscriptionID = Self.commandSubscriptionID(for: clientId)
+        let subscription = CKQuerySubscription(
+            recordType: TelemetrySchema.commandRecordType,
+            predicate: predicate,
+            subscriptionID: subscriptionID,
+            options: [.firesOnRecordCreation]
+        )
+
+        let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.shouldSendContentAvailable = true
+        subscription.notificationInfo = notificationInfo
+
+        let savedSubscription = try await database.save(subscription)
+        return savedSubscription.subscriptionID
+    }
+
+    public func removeCommandSubscription(_ subscriptionID: CKSubscription.ID) async throws {
+        _ = try await database.deleteSubscription(withID: subscriptionID)
+    }
+
+    public func fetchCommandSubscription(for clientId: String) async throws -> CKSubscription.ID? {
+        let subscriptionID = Self.commandSubscriptionID(for: clientId)
+        do {
+            let subscription = try await database.subscription(for: subscriptionID)
+            return subscription.subscriptionID
+        } catch let error as CKError where error.code == .unknownItem {
+            return nil
+        }
     }
 }
