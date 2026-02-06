@@ -4,6 +4,8 @@
 //
 
 import ObjPxlLiveTelemetry
+
+#if os(iOS) || os(visionOS)
 import UIKit
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -49,3 +51,33 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 }
+
+#elseif os(macOS)
+import AppKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var telemetryLifecycle: TelemetryLifecycleService?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register for remote notifications to receive command push notifications
+        NSApplication.shared.registerForRemoteNotifications()
+    }
+
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let tokenString = deviceToken.map { String(format: "%02x", $0) }.joined()
+        print("Registered for remote notifications with token: \(tokenString)")
+    }
+
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("Failed to register for remote notifications: \(error)")
+    }
+
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        guard let lifecycle = telemetryLifecycle else { return }
+
+        Task {
+            _ = await lifecycle.handleRemoteNotification(userInfo)
+        }
+    }
+}
+#endif
