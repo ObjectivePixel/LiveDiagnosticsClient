@@ -699,7 +699,6 @@ public struct CloudKitClient: CloudKitClientProtocol {
 
         let notificationInfo = CKSubscription.NotificationInfo()
         notificationInfo.shouldSendContentAvailable = true
-        notificationInfo.alertBody = "New telemetry command received"
         notificationInfo.shouldBadge = false
         notificationInfo.soundName = nil
         subscription.notificationInfo = notificationInfo
