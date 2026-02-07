@@ -5,6 +5,7 @@ public struct TelemetrySchema: Sendable {
     public static let recordType = "TelemetryEvent"
     public static let clientRecordType = "TelemetryClient"
     public static let settingsBackupRecordType = "TelemetrySettingsBackup"
+    public static let commandRecordType = "TelemetryCommand"
 
     public enum Field: String, CaseIterable {
         case eventId
@@ -80,22 +81,71 @@ public struct TelemetrySchema: Sendable {
         }
     }
 
+    public enum CommandField: String, CaseIterable {
+        case commandId
+        case clientId = "clientid"
+        case action
+        case created
+        case status
+        case executedAt
+        case errorMessage
+
+        public var isIndexed: Bool {
+            switch self {
+            case .commandId, .clientId, .created, .status:
+                return true
+            case .action, .executedAt, .errorMessage:
+                return false
+            }
+        }
+
+        public var fieldTypeDescription: String {
+            switch self {
+            case .commandId, .clientId, .action, .status, .errorMessage:
+                return "String"
+            case .created, .executedAt:
+                return "Date/Time"
+            }
+        }
+    }
+
+    public enum CommandAction: String, Sendable, CaseIterable {
+        case enable
+        case disable
+        case deleteEvents = "delete_events"
+    }
+
+    public enum CommandStatus: String, Sendable, CaseIterable {
+        case pending
+        case executed
+        case failed
+    }
+
     public static func validateSchema(in database: CKDatabase) async throws {
+        print("📋 [Schema] Validating schema in database: \(database.databaseScope.rawValue == 1 ? "public" : database.databaseScope.rawValue == 2 ? "private" : "shared")")
         try await validate(recordTypeName: recordType, in: database)
         try await validate(recordTypeName: clientRecordType, in: database)
+        try await validate(recordTypeName: commandRecordType, in: database)
+        print("📋 [Schema] All record types validated successfully")
     }
 
     private static func validate(recordTypeName: String, in database: CKDatabase) async throws {
+        print("📋 [Schema] Checking record type: \(recordTypeName)")
         let query = CKQuery(recordType: recordTypeName, predicate: NSPredicate(value: true))
         query.sortDescriptors = []
 
         do {
-            _ = try await database.records(matching: query, resultsLimit: 1)
+            let (results, _) = try await database.records(matching: query, resultsLimit: 1)
+            print("📋 [Schema] ✅ \(recordTypeName) exists (found \(results.count) record(s))")
         } catch let error as CKError {
+            print("📋 [Schema] ❌ \(recordTypeName) check failed - CKError code: \(error.code.rawValue) (\(error.code))")
             if error.code == .unknownItem {
                 throw SchemaError.recordTypeNotFound(recordTypeName)
             }
             throw SchemaError.validationFailed(error, recordType: recordTypeName)
+        } catch {
+            print("📋 [Schema] ❌ \(recordTypeName) check failed with non-CK error: \(error)")
+            throw error
         }
     }
 
@@ -141,6 +191,12 @@ public struct TelemetrySchema: Sendable {
 
         if recordType == Self.clientRecordType {
             return ClientField.allCases
+                .map { "   - \($0.rawValue) (\($0.fieldTypeDescription))\($0.isIndexed ? " ✓ Queryable" : "")" }
+                .joined(separator: "\n")
+        }
+
+        if recordType == Self.commandRecordType {
+            return CommandField.allCases
                 .map { "   - \($0.rawValue) (\($0.fieldTypeDescription))\($0.isIndexed ? " ✓ Queryable" : "")" }
                 .joined(separator: "\n")
         }

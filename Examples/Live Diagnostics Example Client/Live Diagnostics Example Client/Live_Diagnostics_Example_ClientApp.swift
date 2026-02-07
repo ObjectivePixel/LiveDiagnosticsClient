@@ -10,6 +10,12 @@ import SwiftUI
 
 @main
 struct Live_Diagnostics_Example_ClientApp: App {
+    #if os(iOS) || os(visionOS)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #elseif os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #endif
+
     private let telemetryLifecycle = TelemetryLifecycleService(
         configuration: .init(containerIdentifier: "iCloud.objpxl.example.telemetry")
     )
@@ -17,6 +23,13 @@ struct Live_Diagnostics_Example_ClientApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(telemetryLifecycle: telemetryLifecycle)
+                .task {
+                    // Wire up the lifecycle to the AppDelegate for push notification handling
+                    appDelegate.telemetryLifecycle = telemetryLifecycle
+
+                    // Start the telemetry lifecycle (loads settings, reconciles with server, sets up command processing)
+                    await telemetryLifecycle.startup()
+                }
         }
     }
 }
