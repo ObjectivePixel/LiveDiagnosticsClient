@@ -57,14 +57,17 @@ public struct CloudKitClient: CloudKitClientProtocol {
         container = resolvedContainer
         database = resolvedContainer.publicCloudDatabase
         identifier = containerIdentifier
+        print("☁️ [CloudKitClient] Initialized with container: \(containerIdentifier)")
     }
 
     public func validateSchema() async -> Bool {
+        print("☁️ [CloudKitClient] Validating schema for container: \(identifier)")
         do {
             try await TelemetrySchema.validateSchema(in: database)
+            print("✅ [CloudKitClient] Schema validation passed")
             return true
         } catch {
-            print("Telemetry schema validation failed: \(error)")
+            print("❌ [CloudKitClient] Schema validation failed for container '\(identifier)': \(error)")
             return false
         }
     }

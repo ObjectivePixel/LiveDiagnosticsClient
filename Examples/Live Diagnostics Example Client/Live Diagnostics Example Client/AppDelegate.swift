@@ -40,13 +40,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        print("📲 [AppDelegate] didReceiveRemoteNotification called")
+        print("📲 [AppDelegate] userInfo: \(userInfo)")
+
         guard let lifecycle = telemetryLifecycle else {
+            print("⚠️ [AppDelegate] telemetryLifecycle is nil, cannot handle notification")
             completionHandler(.noData)
             return
         }
 
         Task {
+            print("📲 [AppDelegate] Forwarding notification to lifecycle service...")
             let handled = await lifecycle.handleRemoteNotification(userInfo)
+            print("📲 [AppDelegate] Notification handled: \(handled)")
             completionHandler(handled ? .newData : .noData)
         }
     }
@@ -73,10 +79,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
-        guard let lifecycle = telemetryLifecycle else { return }
+        print("📲 [AppDelegate] didReceiveRemoteNotification called")
+        print("📲 [AppDelegate] userInfo: \(userInfo)")
+
+        guard let lifecycle = telemetryLifecycle else {
+            print("⚠️ [AppDelegate] telemetryLifecycle is nil, cannot handle notification")
+            return
+        }
 
         Task {
-            _ = await lifecycle.handleRemoteNotification(userInfo)
+            print("📲 [AppDelegate] Forwarding notification to lifecycle service...")
+            let handled = await lifecycle.handleRemoteNotification(userInfo)
+            print("📲 [AppDelegate] Notification handled: \(handled)")
         }
     }
 }

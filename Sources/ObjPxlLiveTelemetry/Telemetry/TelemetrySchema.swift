@@ -122,22 +122,30 @@ public struct TelemetrySchema: Sendable {
     }
 
     public static func validateSchema(in database: CKDatabase) async throws {
+        print("📋 [Schema] Validating schema in database: \(database.databaseScope.rawValue == 1 ? "public" : database.databaseScope.rawValue == 2 ? "private" : "shared")")
         try await validate(recordTypeName: recordType, in: database)
         try await validate(recordTypeName: clientRecordType, in: database)
         try await validate(recordTypeName: commandRecordType, in: database)
+        print("📋 [Schema] All record types validated successfully")
     }
 
     private static func validate(recordTypeName: String, in database: CKDatabase) async throws {
+        print("📋 [Schema] Checking record type: \(recordTypeName)")
         let query = CKQuery(recordType: recordTypeName, predicate: NSPredicate(value: true))
         query.sortDescriptors = []
 
         do {
-            _ = try await database.records(matching: query, resultsLimit: 1)
+            let (results, _) = try await database.records(matching: query, resultsLimit: 1)
+            print("📋 [Schema] ✅ \(recordTypeName) exists (found \(results.count) record(s))")
         } catch let error as CKError {
+            print("📋 [Schema] ❌ \(recordTypeName) check failed - CKError code: \(error.code.rawValue) (\(error.code))")
             if error.code == .unknownItem {
                 throw SchemaError.recordTypeNotFound(recordTypeName)
             }
             throw SchemaError.validationFailed(error, recordType: recordTypeName)
+        } catch {
+            print("📋 [Schema] ❌ \(recordTypeName) check failed with non-CK error: \(error)")
+            throw error
         }
     }
 

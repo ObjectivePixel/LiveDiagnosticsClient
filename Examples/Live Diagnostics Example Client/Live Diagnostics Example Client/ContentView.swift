@@ -15,13 +15,15 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 20) {
                     TelemetryToggleView(lifecycle: telemetryLifecycle)
                     Divider()
                     TestEventSection(
                         telemetryLogger: telemetryLogger,
                         lastEvent: $lastEvent
                     )
+                    Divider()
+                    CommandDebugView(lifecycle: telemetryLifecycle)
                 }
                 .padding()
             }

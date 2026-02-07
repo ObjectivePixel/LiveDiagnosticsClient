@@ -244,9 +244,12 @@ public final class TelemetryLifecycleService {
     }
 
     public func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> Bool {
+        print("📲 [LifecycleService] handleRemoteNotification called")
         guard let processor = commandProcessor else {
+            print("⚠️ [LifecycleService] No command processor available")
             return false
         }
+        print("📲 [LifecycleService] Forwarding to command processor...")
         return await processor.handleRemoteNotification(userInfo)
     }
 
@@ -329,37 +332,49 @@ private extension TelemetryLifecycleService {
     }
 
     func setupCommandProcessing(for clientId: String) async {
+        print("🔧 [LifecycleService] Setting up command processing for clientId: \(clientId)")
+
         // Create command processor with callbacks
         let processor = TelemetryCommandProcessor(
             cloudKitClient: cloudKitClient,
             clientId: clientId,
             onEnable: { [weak self] in
                 guard let self else { return }
+                print("🎯 [LifecycleService] onEnable callback triggered")
                 await self.handleEnableCommand()
             },
             onDisable: { [weak self] in
                 guard let self else { return }
+                print("🎯 [LifecycleService] onDisable callback triggered")
                 await self.handleDisableCommand()
             },
             onDeleteEvents: { [weak self] in
                 guard let self else { return }
+                print("🎯 [LifecycleService] onDeleteEvents callback triggered")
                 try await self.handleDeleteEventsCommand()
             }
         )
         commandProcessor = processor
+        print("✅ [LifecycleService] Command processor created")
 
         // Register subscription (graceful degradation if it fails)
         if let manager = subscriptionManager {
             do {
+                print("📡 [LifecycleService] Registering subscription...")
                 try await manager.registerSubscription(for: clientId)
+                print("✅ [LifecycleService] Subscription registered successfully")
             } catch {
-                print("⚠️ Failed to register command subscription (push notifications may not work): \(error)")
+                print("⚠️ [LifecycleService] Failed to register command subscription (push notifications may not work): \(error)")
                 // Continue without push - commands will still be processed on reconcile
             }
+        } else {
+            print("⚠️ [LifecycleService] No subscription manager available")
         }
 
         // Process any pending commands
+        print("📥 [LifecycleService] Processing any pending commands...")
         await processor.processCommands()
+        print("✅ [LifecycleService] Command processing setup complete")
     }
 
     func teardownCommandProcessing() async {
@@ -375,6 +390,7 @@ private extension TelemetryLifecycleService {
     }
 
     func handleEnableCommand() async {
+        print("✅ [LifecycleService] Handling ENABLE command")
         var currentSettings = await settingsStore.load()
         currentSettings.telemetrySendingEnabled = true
         settings = await saveAndBackupSettings(currentSettings)
@@ -383,29 +399,36 @@ private extension TelemetryLifecycleService {
         // Update client record's isEnabled to true (client owns this record)
         if let recordID = clientRecord?.recordID {
             do {
+                print("✅ [LifecycleService] Updating client record isEnabled to true")
                 clientRecord = try await cloudKitClient.updateTelemetryClient(
                     recordID: recordID,
                     clientId: nil,
                     created: nil,
                     isEnabled: true
                 )
+                print("✅ [LifecycleService] Client record updated successfully")
             } catch {
-                print("⚠️ Failed to update client record isEnabled: \(error)")
+                print("⚠️ [LifecycleService] Failed to update client record isEnabled: \(error)")
             }
         }
 
         reconciliation = .localAndServerEnabled
         if let identifier = settings.clientIdentifier {
             setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
+            print("✅ [LifecycleService] Telemetry enabled for client: \(identifier)")
         }
     }
 
     func handleDisableCommand() async {
+        print("🚫 [LifecycleService] Handling DISABLE command")
         _ = await disableTelemetry(reason: .serverDisabledLocalEnabled)
+        print("🚫 [LifecycleService] Telemetry disabled")
     }
 
     func handleDeleteEventsCommand() async throws {
+        print("🗑️ [LifecycleService] Handling DELETE_EVENTS command")
         _ = try await cloudKitClient.deleteAllRecords()
+        print("🗑️ [LifecycleService] All events deleted")
     }
 
     func recoverExistingClient(identifier: String) async throws -> TelemetryClientRecord? {
