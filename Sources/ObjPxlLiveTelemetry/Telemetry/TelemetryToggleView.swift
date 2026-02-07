@@ -1,21 +1,28 @@
 import SwiftUI
 
+/// A view for controlling telemetry settings, designed to be embedded in a Form or List.
+///
+/// Usage:
+/// ```swift
+/// Form {
+///     TelemetryToggleView(lifecycle: telemetryService)
+/// }
+/// ```
 public struct TelemetryToggleView: View {
     private let lifecycle: TelemetryLifecycleService
     @State private var viewState: ViewState = .idle
     @State private var isTelemetryRequested = false
     @State private var didBootstrap = false
+    @State private var showClearConfirmation = false
 
     public init(lifecycle: TelemetryLifecycleService) {
         self.lifecycle = lifecycle
     }
 
     public var body: some View {
-        VStack(alignment: .leading) {
-            TelemetryToggleHeader()
-
+        Section {
             Toggle(isOn: $isTelemetryRequested) {
-                Label("Share diagnostics", systemImage: "antenna.radiowaves.left.and.right")
+                Label("Share Diagnostics", systemImage: "antenna.radiowaves.left.and.right")
             }
             .onChange(of: isTelemetryRequested) { oldValue, newValue in
                 guard oldValue != newValue, didBootstrap else { return }
@@ -29,52 +36,74 @@ public struct TelemetryToggleView: View {
                 message: lifecycle.statusMessage
             )
 
-            if let identifier = lifecycle.settings.clientIdentifier, lifecycle.settings.telemetryRequested {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Client ID")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(identifier)
-                        #if !os(watchOS)
-                            .textSelection(.enabled)
-                        #endif
-                    }
-                } icon: {
-                    Image(systemName: "person.text.rectangle")
+            if let identifier = lifecycle.settings.clientIdentifier,
+               lifecycle.settings.telemetryRequested {
+                LabeledContent {
+                    Text(identifier)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    #if !os(watchOS)
+                        .textSelection(.enabled)
+                    #endif
+                } label: {
+                    Label("Client ID", systemImage: "person.text.rectangle")
                 }
 
                 let sessionId = lifecycle.telemetryLogger.currentSessionId
                 if !sessionId.isEmpty {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Session ID")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(sessionId)
-                            #if !os(watchOS)
-                                .textSelection(.enabled)
-                            #endif
-                        }
-                    } icon: {
-                        Image(systemName: "clock.badge.checkmark")
+                    LabeledContent {
+                        Text(sessionId)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        #if !os(watchOS)
+                            .textSelection(.enabled)
+                        #endif
+                    } label: {
+                        Label("Session ID", systemImage: "clock.badge.checkmark")
                     }
                 }
             }
+        } header: {
+            Text("Telemetry")
+        } footer: {
+            Text("Share diagnostic data to help improve the app. Data is transmitted securely via CloudKit.")
+        }
 
-            HStack {
-                Button("Sync Status", systemImage: "arrow.clockwise") {
-                    Task { await reconcile() }
+        Section {
+            Button {
+                Task { await reconcile() }
+            } label: {
+                HStack {
+                    Label("Sync Status", systemImage: "arrow.triangle.2.circlepath")
+                    Spacer()
+                    if viewState == .syncing {
+                        ProgressView()
+                    }
                 }
-                .buttonStyle(.bordered)
-                .disabled(viewState.isBusy)
+            }
+            .disabled(viewState.isBusy)
 
-                Button("Clear Telemetry", systemImage: "trash") {
+            Button(role: .destructive) {
+                showClearConfirmation = true
+            } label: {
+                Label("Clear Telemetry Data", systemImage: "trash")
+            }
+            .disabled(viewState.isBusy)
+            .confirmationDialog(
+                "Clear Telemetry Data?",
+                isPresented: $showClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Clear Data", role: .destructive) {
                     Task { await disableTelemetry() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .disabled(viewState.isBusy)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will disable telemetry and remove your client registration. This action cannot be undone.")
             }
         }
         .task {
@@ -142,66 +171,96 @@ private enum ViewState: Equatable {
     }
 }
 
-private struct TelemetryToggleHeader: View {
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("Telemetry")
-                .font(.title2)
-                .bold()
-            Text("Control diagnostics collection and keep CloudKit in sync.")
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
 private struct TelemetryStatusRow: View {
     var viewState: ViewState
     var status: TelemetryLifecycleService.Status
     var message: String?
 
     var body: some View {
-        HStack {
-            switch viewState {
-            case .idle:
-                Image(systemName: "checkmark.seal")
-                    .foregroundStyle(.green)
-            case .loading, .syncing:
-                ProgressView()
-            case .error:
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
+        LabeledContent {
+            HStack(spacing: 6) {
                 Text(statusTitle)
-                    .bold()
-                if let message {
-                    Text(message)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if case .error(let detail) = viewState {
-                    Text(detail)
-                        .foregroundStyle(.red)
-                }
+                    .foregroundStyle(statusColor)
+                statusIcon
             }
+        } label: {
+            Label("Status", systemImage: "info.circle")
+        }
+
+        if let message, !message.isEmpty {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+
+        if case .error(let detail) = viewState {
+            Text(detail)
+                .font(.footnote)
+                .foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch viewState {
+        case .idle:
+            Image(systemName: statusImageName)
+                .foregroundStyle(statusColor)
+                .imageScale(.small)
+        case .loading, .syncing:
+            ProgressView()
+                .controlSize(.small)
+        case .error:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .imageScale(.small)
+        }
+    }
+
+    private var statusImageName: String {
+        switch status {
+        case .enabled:
+            return "checkmark.circle.fill"
+        case .disabled:
+            return "minus.circle.fill"
+        case .pendingApproval:
+            return "clock.fill"
+        case .error:
+            return "exclamationmark.triangle.fill"
+        default:
+            return "circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch status {
+        case .enabled:
+            return .green
+        case .disabled:
+            return .secondary
+        case .pendingApproval:
+            return .orange
+        case .error:
+            return .red
+        default:
+            return .secondary
         }
     }
 
     private var statusTitle: String {
         switch status {
         case .idle:
-            return "Idle"
+            return "Ready"
         case .loading:
-            return "Loading telemetry"
+            return "Loading…"
         case .syncing:
-            return "Syncing"
+            return "Syncing…"
         case .enabled:
-            return "Telemetry sending"
+            return "Active"
         case .disabled:
-            return "Telemetry disabled"
+            return "Disabled"
         case .pendingApproval:
-            return "Pending approval"
+            return "Pending"
         case .error:
             return "Error"
         }
@@ -209,10 +268,11 @@ private struct TelemetryStatusRow: View {
 }
 
 #Preview {
-    TelemetryToggleView(
-        lifecycle: TelemetryLifecycleService(
-            configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
+    Form {
+        TelemetryToggleView(
+            lifecycle: TelemetryLifecycleService(
+                configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
+            )
         )
-    )
-    .padding()
+    }
 }
