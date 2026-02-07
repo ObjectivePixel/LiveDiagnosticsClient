@@ -749,6 +749,8 @@ public struct CloudKitClient: CloudKitClientProtocol {
         let notificationInfo = CKSubscription.NotificationInfo()
         notificationInfo.shouldSendContentAvailable = true
         notificationInfo.shouldBadge = false
+        notificationInfo.alertBody = "Client list changed"
+        notificationInfo.soundName = "default"
         subscription.notificationInfo = notificationInfo
 
         let saved = try await database.save(subscription)
