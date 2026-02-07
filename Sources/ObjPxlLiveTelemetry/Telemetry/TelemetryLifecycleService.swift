@@ -360,9 +360,10 @@ private extension TelemetryLifecycleService {
         // Register subscription (graceful degradation if it fails)
         if let manager = subscriptionManager {
             do {
-                print("📡 [LifecycleService] Registering subscription...")
+                print("📡 [LifecycleService] Registering subscription with manager...")
                 try await manager.registerSubscription(for: clientId)
-                print("✅ [LifecycleService] Subscription registered successfully")
+                let subId = await manager.currentSubscriptionID
+                print("✅ [LifecycleService] Subscription registered successfully, current ID: \(subId ?? "nil")")
             } catch {
                 print("⚠️ [LifecycleService] Failed to register command subscription (push notifications may not work): \(error)")
                 // Continue without push - commands will still be processed on reconcile

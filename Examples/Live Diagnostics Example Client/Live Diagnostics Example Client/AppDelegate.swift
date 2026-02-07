@@ -60,11 +60,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 #elseif os(macOS)
 import AppKit
+import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var telemetryLifecycle: TelemetryLifecycleService?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set ourselves as the notification center delegate to receive notifications in foreground
+        UNUserNotificationCenter.current().delegate = self
+
+        // Request notification authorization (required for visible notifications on macOS)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            print("📲 [AppDelegate] Notification authorization granted: \(granted)")
+            if let error = error {
+                print("❌ [AppDelegate] Notification authorization error: \(error)")
+            }
+        }
+
         // Register for remote notifications to receive command push notifications
         NSApplication.shared.registerForRemoteNotifications()
     }
@@ -92,6 +104,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let handled = await lifecycle.handleRemoteNotification(userInfo)
             print("📲 [AppDelegate] Notification handled: \(handled)")
         }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        print("📲 [AppDelegate] willPresent notification: \(notification.request.content.userInfo)")
+        // Show the notification even when app is in foreground
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        print("📲 [AppDelegate] didReceive notification response: \(response.notification.request.content.userInfo)")
+        completionHandler()
     }
 }
 #endif

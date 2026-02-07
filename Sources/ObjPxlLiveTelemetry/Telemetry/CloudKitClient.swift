@@ -31,6 +31,7 @@ public protocol CloudKitClientProtocol: Sendable {
 
     // Command CRUD
     func createCommand(_ command: TelemetryCommandRecord) async throws -> TelemetryCommandRecord
+    func fetchCommand(recordID: CKRecord.ID) async throws -> TelemetryCommandRecord?
     func fetchPendingCommands(for clientId: String) async throws -> [TelemetryCommandRecord]
     func updateCommandStatus(recordID: CKRecord.ID, status: TelemetrySchema.CommandStatus, executedAt: Date?, errorMessage: String?) async throws -> TelemetryCommandRecord
     func deleteCommand(recordID: CKRecord.ID) async throws
@@ -568,6 +569,15 @@ public struct CloudKitClient: CloudKitClientProtocol {
         return try TelemetryCommandRecord(record: savedRecord)
     }
 
+    public func fetchCommand(recordID: CKRecord.ID) async throws -> TelemetryCommandRecord? {
+        do {
+            let record = try await database.record(for: recordID)
+            return try TelemetryCommandRecord(record: record)
+        } catch let error as CKError where error.code == .unknownItem {
+            return nil
+        }
+    }
+
     public func fetchPendingCommands(for clientId: String) async throws -> [TelemetryCommandRecord] {
         let predicate = NSPredicate(
             format: "%K == %@ AND %K == %@",
@@ -665,6 +675,9 @@ public struct CloudKitClient: CloudKitClientProtocol {
     }
 
     public func createCommandSubscription(for clientId: String) async throws -> CKSubscription.ID {
+        print("📡 [CloudKitClient] Creating subscription for clientId: \(clientId)")
+        print("📡 [CloudKitClient] Container: \(identifier), Database scope: \(database.databaseScope.rawValue)")
+
         let predicate = NSPredicate(
             format: "%K == %@ AND %K == %@",
             TelemetrySchema.CommandField.clientId.rawValue,
@@ -672,8 +685,11 @@ public struct CloudKitClient: CloudKitClientProtocol {
             TelemetrySchema.CommandField.status.rawValue,
             TelemetrySchema.CommandStatus.pending.rawValue
         )
+        print("📡 [CloudKitClient] Predicate: \(predicate)")
 
         let subscriptionID = Self.commandSubscriptionID(for: clientId)
+        print("📡 [CloudKitClient] Subscription ID will be: \(subscriptionID)")
+
         let subscription = CKQuerySubscription(
             recordType: TelemetrySchema.commandRecordType,
             predicate: predicate,
@@ -683,10 +699,19 @@ public struct CloudKitClient: CloudKitClientProtocol {
 
         let notificationInfo = CKSubscription.NotificationInfo()
         notificationInfo.shouldSendContentAvailable = true
+        notificationInfo.alertBody = "New telemetry command received"
+        notificationInfo.shouldBadge = false
+        notificationInfo.soundName = nil
         subscription.notificationInfo = notificationInfo
 
-        let savedSubscription = try await database.save(subscription)
-        return savedSubscription.subscriptionID
+        do {
+            let savedSubscription = try await database.save(subscription)
+            print("✅ [CloudKitClient] Subscription saved successfully: \(savedSubscription.subscriptionID)")
+            return savedSubscription.subscriptionID
+        } catch {
+            print("❌ [CloudKitClient] Failed to save subscription: \(error)")
+            throw error
+        }
     }
 
     public func removeCommandSubscription(_ subscriptionID: CKSubscription.ID) async throws {

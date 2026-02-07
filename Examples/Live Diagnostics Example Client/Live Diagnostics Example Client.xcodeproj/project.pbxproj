@@ -33,9 +33,22 @@
 		9C643AF42EF58F5500EF0165 /* Live Diagnostics Example ClientUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Live Diagnostics Example ClientUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9C6317BB2F378CB7002C65D0 /* Exceptions for "Live Diagnostics Example Client" folder in "Live Diagnostics Example Client" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Live-Diagnostics-Example-Client-Info.plist",
+			);
+			target = 9C643ADC2EF58F5400EF0165 /* Live Diagnostics Example Client */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9C643ADF2EF58F5400EF0165 /* Live Diagnostics Example Client */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9C6317BB2F378CB7002C65D0 /* Exceptions for "Live Diagnostics Example Client" folder in "Live Diagnostics Example Client" target */,
+			);
 			path = "Live Diagnostics Example Client";
 			sourceTree = "<group>";
 		};
@@ -408,6 +421,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Live-Diagnostics-Example-Client-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -456,6 +470,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Live-Diagnostics-Example-Client-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
