@@ -40,6 +40,11 @@ public protocol CloudKitClientProtocol: Sendable {
     func createCommandSubscription(for clientId: String) async throws -> CKSubscription.ID
     func removeCommandSubscription(_ subscriptionID: CKSubscription.ID) async throws
     func fetchCommandSubscription(for clientId: String) async throws -> CKSubscription.ID?
+
+    // TelemetryClient subscriptions (for viewer)
+    func createClientRecordSubscription() async throws -> CKSubscription.ID
+    func removeSubscription(_ subscriptionID: CKSubscription.ID) async throws
+    func fetchSubscription(id: CKSubscription.ID) async throws -> CKSubscription.ID?
 }
 
 public extension CloudKitClientProtocol {
@@ -721,6 +726,43 @@ public struct CloudKitClient: CloudKitClientProtocol {
         let subscriptionID = Self.commandSubscriptionID(for: clientId)
         do {
             let subscription = try await database.subscription(for: subscriptionID)
+            return subscription.subscriptionID
+        } catch let error as CKError where error.code == .unknownItem {
+            return nil
+        }
+    }
+
+    // MARK: - TelemetryClient Subscriptions
+
+    private static let clientRecordSubscriptionID: CKSubscription.ID = "TelemetryClient-All"
+
+    public func createClientRecordSubscription() async throws -> CKSubscription.ID {
+        print("📡 [CloudKitClient] Creating TelemetryClient subscription")
+
+        let subscription = CKQuerySubscription(
+            recordType: TelemetrySchema.clientRecordType,
+            predicate: NSPredicate(value: true),
+            subscriptionID: Self.clientRecordSubscriptionID,
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
+        )
+
+        let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.shouldSendContentAvailable = true
+        notificationInfo.shouldBadge = false
+        subscription.notificationInfo = notificationInfo
+
+        let saved = try await database.save(subscription)
+        print("✅ [CloudKitClient] TelemetryClient subscription saved: \(saved.subscriptionID)")
+        return saved.subscriptionID
+    }
+
+    public func removeSubscription(_ subscriptionID: CKSubscription.ID) async throws {
+        try await database.deleteSubscription(withID: subscriptionID)
+    }
+
+    public func fetchSubscription(id: CKSubscription.ID) async throws -> CKSubscription.ID? {
+        do {
+            let subscription = try await database.subscription(for: id)
             return subscription.subscriptionID
         } catch let error as CKError where error.code == .unknownItem {
             return nil
