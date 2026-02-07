@@ -67,13 +67,6 @@ public struct TelemetryToggleView: View {
                     }
                 }
             }
-        } header: {
-            Text("Telemetry")
-        } footer: {
-            Text("Share diagnostic data to help improve the app. Data is transmitted securely via CloudKit.")
-        }
-
-        Section {
             Button {
                 Task { await reconcile() }
             } label: {
@@ -105,6 +98,10 @@ public struct TelemetryToggleView: View {
             } message: {
                 Text("This will disable telemetry and remove your client registration. This action cannot be undone.")
             }
+        } header: {
+            Text("Telemetry")
+        } footer: {
+            Text("Share diagnostic data to help improve the app. Data is transmitted securely via CloudKit.")
         }
         .task {
             await bootstrap()
