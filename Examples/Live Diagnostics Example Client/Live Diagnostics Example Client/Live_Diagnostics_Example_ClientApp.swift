@@ -11,9 +11,9 @@ import SwiftUI
 @main
 struct Live_Diagnostics_Example_ClientApp: App {
     #if os(iOS) || os(visionOS)
-    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @UIApplicationDelegateAdaptor(TelemetryAppDelegate.self) private var appDelegate
     #elseif os(macOS)
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @NSApplicationDelegateAdaptor(TelemetryAppDelegate.self) private var appDelegate
     #endif
 
     private let telemetryLifecycle = TelemetryLifecycleService(

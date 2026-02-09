@@ -2,6 +2,12 @@ import CloudKit
 import Foundation
 import Observation
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 @MainActor
 @Observable
 public final class TelemetryLifecycleService {
@@ -43,6 +49,7 @@ public final class TelemetryLifecycleService {
     public private(set) var clientRecord: TelemetryClientRecord?
     public private(set) var statusMessage: String?
     public private(set) var isRestorationInProgress = false
+    private var hasStartedUp = false
 
     public var telemetryLogger: any TelemetryLogging { logger }
 
@@ -83,6 +90,9 @@ public final class TelemetryLifecycleService {
 
     @discardableResult
     public func startup() async -> TelemetrySettings {
+        if hasStartedUp { return settings }
+        hasStartedUp = true
+
         setStatus(.loading, message: "Loading telemetry preferences")
 
         // Load from UserDefaults (fast)
@@ -332,6 +342,12 @@ private extension TelemetryLifecycleService {
     }
 
     func setupCommandProcessing(for clientId: String) async {
+        #if canImport(UIKit) && !os(watchOS)
+        UIApplication.shared.registerForRemoteNotifications()
+        #elseif canImport(AppKit)
+        NSApplication.shared.registerForRemoteNotifications()
+        #endif
+
         print("🔧 [LifecycleService] Setting up command processing for clientId: \(clientId)")
 
         // Create command processor with callbacks
