@@ -35,6 +35,7 @@ public protocol CloudKitClientProtocol: Sendable {
     func fetchPendingCommands(for clientId: String) async throws -> [TelemetryCommandRecord]
     func updateCommandStatus(recordID: CKRecord.ID, status: TelemetrySchema.CommandStatus, executedAt: Date?, errorMessage: String?) async throws -> TelemetryCommandRecord
     func deleteCommand(recordID: CKRecord.ID) async throws
+    func deleteAllCommands(for clientId: String) async throws -> Int
 
     // Subscription management
     func createCommandSubscription(for clientId: String) async throws -> CKSubscription.ID
@@ -671,6 +672,81 @@ public struct CloudKitClient: CloudKitClientProtocol {
 
     public func deleteCommand(recordID: CKRecord.ID) async throws {
         _ = try await database.deleteRecord(withID: recordID)
+    }
+
+    public func deleteAllCommands(for clientId: String) async throws -> Int {
+        let predicate = NSPredicate(
+            format: "%K == %@",
+            TelemetrySchema.CommandField.clientId.rawValue,
+            clientId
+        )
+        let query = CKQuery(recordType: TelemetrySchema.commandRecordType, predicate: predicate)
+        query.sortDescriptors = []
+
+        func fetchIDs(cursor: CKQueryOperation.Cursor?) async throws -> ([CKRecord.ID], CKQueryOperation.Cursor?) {
+            let op: CKQueryOperation = cursor.map(CKQueryOperation.init) ?? CKQueryOperation(query: query)
+            op.desiredKeys = []
+            op.resultsLimit = CKQueryOperation.maximumResults
+            op.qualityOfService = .utility
+
+            return try await withCheckedThrowingContinuation { continuation in
+                var ids: [CKRecord.ID] = []
+
+                op.recordMatchedBlock = { _, result in
+                    if case .success(let record) = result {
+                        ids.append(record.recordID)
+                    }
+                }
+
+                op.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        continuation.resume(returning: (ids, cursor))
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+
+                database.add(op)
+            }
+        }
+
+        var recordIDs: [CKRecord.ID] = []
+        var cursor: CKQueryOperation.Cursor?
+        repeat {
+            let page = try await fetchIDs(cursor: cursor)
+            recordIDs.append(contentsOf: page.0)
+            cursor = page.1
+        } while cursor != nil
+
+        guard !recordIDs.isEmpty else { return 0 }
+
+        let batchSize = 400
+        var totalDeleted = 0
+
+        for i in stride(from: 0, to: recordIDs.count, by: batchSize) {
+            let endIndex = min(i + batchSize, recordIDs.count)
+            let batch = Array(recordIDs[i..<endIndex])
+
+            let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: batch)
+
+            let _: Void = try await withCheckedThrowingContinuation { continuation in
+                operation.modifyRecordsResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume()
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+
+                database.add(operation)
+            }
+
+            totalDeleted += batch.count
+        }
+
+        return totalDeleted
     }
 
     // MARK: - Subscriptions

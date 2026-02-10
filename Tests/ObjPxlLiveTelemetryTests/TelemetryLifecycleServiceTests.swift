@@ -148,6 +148,43 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(service.settings, .defaults)
     }
 
+    func testDisableTelemetryDeletesCommands() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-cleanup"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager()
+        )
+
+        // Enable telemetry
+        await service.enableTelemetry()
+
+        // Simulate some commands existing for this client
+        _ = try await cloudKit.createCommand(
+            TelemetryCommandRecord(clientId: "cmd-cleanup", action: .enable)
+        )
+        _ = try await cloudKit.createCommand(
+            TelemetryCommandRecord(clientId: "cmd-cleanup", action: .deleteEvents)
+        )
+
+        // Verify commands exist
+        var commands = await cloudKit.fetchAllCommands()
+        XCTAssertEqual(commands.count, 2)
+
+        // Disable telemetry
+        await service.disableTelemetry()
+
+        // Verify commands were deleted
+        commands = await cloudKit.fetchAllCommands()
+        XCTAssertEqual(commands.count, 0, "TelemetryCommand records should be deleted when telemetry is disabled")
+    }
+
     func testPendingApprovalPersistsAcrossReconcile() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -356,10 +393,9 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertFalse(service.settings.telemetryRequested)
         XCTAssertEqual(service.status, TelemetryLifecycleService.Status.disabled)
 
-        // Verify command was marked as executed
+        // Commands are cleaned up as part of disableTelemetry
         let commands = await cloudKit.fetchAllCommands()
-        XCTAssertEqual(commands.count, 1)
-        XCTAssertEqual(commands.first?.status, .executed)
+        XCTAssertEqual(commands.count, 0, "Commands should be deleted when telemetry is disabled")
     }
 
     func testDeleteEventsCommandProcessed() async throws {
@@ -829,6 +865,16 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
         commands.removeAll { $0.recordID == recordID }
     }
 
+    func deleteAllCommands(for clientId: String) async throws -> Int {
+        let matching = commands.filter { $0.clientId == clientId }
+        commands.removeAll { $0.clientId == clientId }
+        return matching.count
+    }
+
+    func fetchCommand(recordID: CKRecord.ID) async throws -> TelemetryCommandRecord? {
+        commands.first { $0.recordID == recordID }
+    }
+
     // MARK: - Subscription Methods
 
     func createCommandSubscription(for clientId: String) async throws -> CKSubscription.ID {
@@ -846,6 +892,18 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
 
     func fetchCommandSubscription(for clientId: String) async throws -> CKSubscription.ID? {
         subscriptions[clientId]
+    }
+
+    func createClientRecordSubscription() async throws -> CKSubscription.ID {
+        "TelemetryClient-All"
+    }
+
+    func removeSubscription(_ subscriptionID: CKSubscription.ID) async throws {
+        subscriptions = subscriptions.filter { $0.value != subscriptionID }
+    }
+
+    func fetchSubscription(id: CKSubscription.ID) async throws -> CKSubscription.ID? {
+        subscriptions.values.first { $0 == id }
     }
 
     // MARK: - Test Helpers

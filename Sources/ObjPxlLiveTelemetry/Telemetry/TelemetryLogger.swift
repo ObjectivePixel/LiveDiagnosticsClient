@@ -52,7 +52,7 @@ public actor TelemetryLogger: TelemetryLogging {
         case ready(enabled: Bool)
     }
 
-    private let client: CloudKitClient
+    private let client: CloudKitClientProtocol
     private let config: Configuration
     private var flushTask: Task<Void, Never>?
     private var consumeTask: Task<Void, Never>?
@@ -64,10 +64,11 @@ public actor TelemetryLogger: TelemetryLogging {
     private nonisolated let shutdownLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     private nonisolated let stateLock = OSAllocatedUnfairLock<LoggerState>(initialState: .initializing)
     public nonisolated let currentSessionId: String
+    private let deferredStream: AsyncStream<TelemetryEvent>
 
     public init(
         configuration: Configuration = .default,
-        client: CloudKitClient
+        client: CloudKitClientProtocol
     ) {
         self.client = client
         self.config = configuration
@@ -79,9 +80,7 @@ public actor TelemetryLogger: TelemetryLogging {
         }
         let capturedContinuation = continuation
         continuationLock.withLock { $0 = capturedContinuation }
-        Task {
-            await bootstrap(stream: stream)
-        }
+        self.deferredStream = stream
     }
 
     // without nonisolated, this must be called async which isn't compatible for the constructor scenario
@@ -130,6 +129,9 @@ public actor TelemetryLogger: TelemetryLogging {
 
     public func activate(enabled: Bool) async {
         if enabled {
+            // Start consuming and validating only when telemetry is actually enabled
+            await bootstrap(stream: deferredStream)
+
             // Flush queued events to pending
             for event in queuedEvents {
                 _ = continuationLock.withLock { continuation in

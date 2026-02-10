@@ -219,11 +219,22 @@ public final class TelemetryLifecycleService {
     public func disableTelemetry(reason: ReconciliationResult? = nil) async -> TelemetrySettings {
         setStatus(.syncing, message: "Disabling telemetry…")
 
-        // Unregister subscription first
+        // 1. Teardown command processing (unregister subscription)
         await teardownCommandProcessing()
 
+        // 2. Stop the logger immediately so no new events are accepted or flushed
+        let identifier = settings.clientIdentifier
+        await logger.setEnabled(false)
+        await logger.shutdown()
+
+        // 3. Reset local state before CloudKit cleanup
+        clientRecord = nil
+        reconciliation = reason ?? .allDisabled
+        settings = await resetAndClearBackup()
+
+        // 4. Delete remote records
         do {
-            if let identifier = settings.clientIdentifier {
+            if let identifier {
                 let remoteClients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
                 for client in remoteClients {
                     if let recordID = client.recordID {
@@ -232,17 +243,15 @@ public final class TelemetryLifecycleService {
                 }
             }
             _ = try await cloudKitClient.deleteAllTelemetryEvents()
+            if let identifier {
+                _ = try await cloudKitClient.deleteAllCommands(for: identifier)
+            }
         } catch {
             let description = error.localizedDescription
             setStatus(.error("Disable failed: \(description)"), message: "Disable failed: \(description)")
             return settings
         }
 
-        let identifier = settings.clientIdentifier
-        clientRecord = nil
-        reconciliation = reason ?? .allDisabled
-        settings = await resetAndClearBackup()
-        await updateLoggerEnabled()
         let message: String
         if let reason, let identifier {
             message = statusMessage(for: reason, identifier: identifier)
