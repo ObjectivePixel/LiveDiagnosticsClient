@@ -108,7 +108,7 @@ DEFINE SCHEMA
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
         clientid        STRING QUERYABLE SEARCHABLE SORTABLE,
-        created         TIMESTAMP,
+        created         TIMESTAMP QUERYABLE SORTABLE,
         isEnabled       INT64 QUERYABLE SORTABLE,
         scenarioName    STRING QUERYABLE SEARCHABLE SORTABLE,
         GRANT WRITE TO "_creator",

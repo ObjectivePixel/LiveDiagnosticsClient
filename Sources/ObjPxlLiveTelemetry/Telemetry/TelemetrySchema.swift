@@ -121,10 +121,8 @@ public struct TelemetrySchema: Sendable {
 
         public var isIndexed: Bool {
             switch self {
-            case .clientId, .scenarioName, .isEnabled:
+            case .clientId, .scenarioName, .isEnabled, .created:
                 return true
-            case .created:
-                return false
             }
         }
 
