@@ -42,6 +42,13 @@ public protocol CloudKitClientProtocol: Sendable {
     func removeCommandSubscription(_ subscriptionID: CKSubscription.ID) async throws
     func fetchCommandSubscription(for clientId: String) async throws -> CKSubscription.ID?
 
+    // Scenario CRUD
+    func createScenarios(_ scenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord]
+    func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord]
+    func updateScenario(_ scenario: TelemetryScenarioRecord) async throws -> TelemetryScenarioRecord
+    func deleteScenarios(forClient clientId: String) async throws -> Int
+    func createScenarioSubscription() async throws -> CKSubscription.ID
+
     // TelemetryClient subscriptions (for viewer)
     func createClientRecordSubscription() async throws -> CKSubscription.ID
     func removeSubscription(_ subscriptionID: CKSubscription.ID) async throws
@@ -747,6 +754,218 @@ public struct CloudKitClient: CloudKitClientProtocol {
         }
 
         return totalDeleted
+    }
+
+    // MARK: - Scenarios
+
+    public func createScenarios(_ scenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord] {
+        guard !scenarios.isEmpty else { return [] }
+
+        let records = scenarios.map { $0.toCKRecord() }
+
+        let operation = CKModifyRecordsOperation(recordsToSave: records)
+        operation.savePolicy = .allKeys
+
+        let savedRecords: [CKRecord] = try await withCheckedThrowingContinuation { continuation in
+            var saved: [CKRecord] = []
+
+            operation.perRecordSaveBlock = { _, result in
+                if case .success(let record) = result {
+                    saved.append(record)
+                }
+            }
+
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    continuation.resume(returning: saved)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            database.add(operation)
+        }
+
+        return try savedRecords.map { try TelemetryScenarioRecord(record: $0) }
+    }
+
+    public func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord] {
+        let predicate: NSPredicate
+        if let clientId {
+            predicate = NSPredicate(
+                format: "%K == %@",
+                TelemetrySchema.ScenarioField.clientId.rawValue,
+                clientId
+            )
+        } else {
+            predicate = NSPredicate(value: true)
+        }
+
+        let query = CKQuery(recordType: TelemetrySchema.scenarioRecordType, predicate: predicate)
+        query.sortDescriptors = [NSSortDescriptor(key: TelemetrySchema.ScenarioField.created.rawValue, ascending: false)]
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var allScenarios: [TelemetryScenarioRecord] = []
+            var didResume = false
+
+            func resume(with result: Result<[TelemetryScenarioRecord], Error>) {
+                guard !didResume else { return }
+                didResume = true
+                switch result {
+                case .success(let scenarios):
+                    continuation.resume(returning: scenarios)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            func configure(operation: CKQueryOperation) {
+                operation.resultsLimit = CKQueryOperation.maximumResults
+                operation.qualityOfService = .userInitiated
+
+                operation.recordMatchedBlock = { recordID, result in
+                    switch result {
+                    case .success(let record):
+                        do {
+                            let scenario = try TelemetryScenarioRecord(record: record)
+                            allScenarios.append(scenario)
+                        } catch {
+                            print("❌ Failed to parse scenario record \(recordID): \(error)")
+                        }
+                    case .failure(let error):
+                        print("❌ Failed to fetch scenario record \(recordID): \(error)")
+                    }
+                }
+
+                operation.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        if let cursor {
+                            let nextOperation = CKQueryOperation(cursor: cursor)
+                            configure(operation: nextOperation)
+                            self.database.add(nextOperation)
+                        } else {
+                            resume(with: .success(allScenarios))
+                        }
+                    case .failure(let error):
+                        resume(with: .failure(error))
+                    }
+                }
+            }
+
+            let operation = CKQueryOperation(query: query)
+            configure(operation: operation)
+            database.add(operation)
+        }
+    }
+
+    public func updateScenario(_ scenario: TelemetryScenarioRecord) async throws -> TelemetryScenarioRecord {
+        guard let recordID = scenario.recordID else {
+            throw TelemetryScenarioRecord.Error.missingRecordID
+        }
+
+        let record = try await database.record(for: recordID)
+        let updatedRecord = try scenario.applying(to: record)
+        let saved = try await database.save(updatedRecord)
+        return try TelemetryScenarioRecord(record: saved)
+    }
+
+    public func deleteScenarios(forClient clientId: String) async throws -> Int {
+        let predicate = NSPredicate(
+            format: "%K == %@",
+            TelemetrySchema.ScenarioField.clientId.rawValue,
+            clientId
+        )
+        let query = CKQuery(recordType: TelemetrySchema.scenarioRecordType, predicate: predicate)
+        query.sortDescriptors = []
+
+        func fetchIDs(cursor: CKQueryOperation.Cursor?) async throws -> ([CKRecord.ID], CKQueryOperation.Cursor?) {
+            let op: CKQueryOperation = cursor.map(CKQueryOperation.init) ?? CKQueryOperation(query: query)
+            op.desiredKeys = []
+            op.resultsLimit = CKQueryOperation.maximumResults
+            op.qualityOfService = .utility
+
+            return try await withCheckedThrowingContinuation { continuation in
+                var ids: [CKRecord.ID] = []
+
+                op.recordMatchedBlock = { _, result in
+                    if case .success(let record) = result {
+                        ids.append(record.recordID)
+                    }
+                }
+
+                op.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        continuation.resume(returning: (ids, cursor))
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+
+                database.add(op)
+            }
+        }
+
+        var recordIDs: [CKRecord.ID] = []
+        var cursor: CKQueryOperation.Cursor?
+        repeat {
+            let page = try await fetchIDs(cursor: cursor)
+            recordIDs.append(contentsOf: page.0)
+            cursor = page.1
+        } while cursor != nil
+
+        guard !recordIDs.isEmpty else { return 0 }
+
+        let batchSize = 400
+        var totalDeleted = 0
+
+        for i in stride(from: 0, to: recordIDs.count, by: batchSize) {
+            let endIndex = min(i + batchSize, recordIDs.count)
+            let batch = Array(recordIDs[i..<endIndex])
+
+            let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: batch)
+
+            let _: Void = try await withCheckedThrowingContinuation { continuation in
+                operation.modifyRecordsResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume()
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+
+                database.add(operation)
+            }
+
+            totalDeleted += batch.count
+        }
+
+        return totalDeleted
+    }
+
+    private static let scenarioSubscriptionID: CKSubscription.ID = "TelemetryScenario-All"
+
+    public func createScenarioSubscription() async throws -> CKSubscription.ID {
+        print("📡 [CloudKitClient] Creating TelemetryScenario subscription")
+
+        let subscription = CKQuerySubscription(
+            recordType: TelemetrySchema.scenarioRecordType,
+            predicate: NSPredicate(value: true),
+            subscriptionID: Self.scenarioSubscriptionID,
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
+        )
+
+        let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.shouldSendContentAvailable = true
+        notificationInfo.shouldBadge = false
+        subscription.notificationInfo = notificationInfo
+
+        let saved = try await database.save(subscription)
+        print("✅ [CloudKitClient] TelemetryScenario subscription saved: \(saved.subscriptionID)")
+        return saved.subscriptionID
     }
 
     // MARK: - Subscriptions

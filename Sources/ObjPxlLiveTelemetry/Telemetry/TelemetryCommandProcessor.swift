@@ -5,25 +5,33 @@ public actor TelemetryCommandProcessor {
     public typealias EnableHandler = @Sendable () async throws -> Void
     public typealias DisableHandler = @Sendable () async throws -> Void
     public typealias DeleteEventsHandler = @Sendable () async throws -> Void
+    public typealias EnableScenarioHandler = @Sendable (String) async throws -> Void
+    public typealias DisableScenarioHandler = @Sendable (String) async throws -> Void
 
     private let cloudKitClient: CloudKitClientProtocol
     private let clientId: String
     private let onEnable: EnableHandler
     private let onDisable: DisableHandler
     private let onDeleteEvents: DeleteEventsHandler
+    private let onEnableScenario: EnableScenarioHandler
+    private let onDisableScenario: DisableScenarioHandler
 
     public init(
         cloudKitClient: CloudKitClientProtocol,
         clientId: String,
         onEnable: @escaping EnableHandler,
         onDisable: @escaping DisableHandler,
-        onDeleteEvents: @escaping DeleteEventsHandler
+        onDeleteEvents: @escaping DeleteEventsHandler,
+        onEnableScenario: @escaping EnableScenarioHandler,
+        onDisableScenario: @escaping DisableScenarioHandler
     ) {
         self.cloudKitClient = cloudKitClient
         self.clientId = clientId
         self.onEnable = onEnable
         self.onDisable = onDisable
         self.onDeleteEvents = onDeleteEvents
+        self.onEnableScenario = onEnableScenario
+        self.onDisableScenario = onDisableScenario
     }
 
     public func processCommands() async {
@@ -118,10 +126,35 @@ public actor TelemetryCommandProcessor {
             case .deleteEvents:
                 print("🔄 [CommandProcessor] Calling onDeleteEvents handler...")
                 try await onDeleteEvents()
+            case .enableScenario:
+                guard let scenarioName = command.scenarioName else {
+                    print("❌ [CommandProcessor] enableScenario command missing scenarioName")
+                    _ = try await cloudKitClient.updateCommandStatus(
+                        recordID: recordID,
+                        status: .failed,
+                        executedAt: .now,
+                        errorMessage: "Missing scenarioName for enableScenario command"
+                    )
+                    return
+                }
+                print("🔄 [CommandProcessor] Calling onEnableScenario handler for '\(scenarioName)'...")
+                try await onEnableScenario(scenarioName)
+            case .disableScenario:
+                guard let scenarioName = command.scenarioName else {
+                    print("❌ [CommandProcessor] disableScenario command missing scenarioName")
+                    _ = try await cloudKitClient.updateCommandStatus(
+                        recordID: recordID,
+                        status: .failed,
+                        executedAt: .now,
+                        errorMessage: "Missing scenarioName for disableScenario command"
+                    )
+                    return
+                }
+                print("🔄 [CommandProcessor] Calling onDisableScenario handler for '\(scenarioName)'...")
+                try await onDisableScenario(scenarioName)
             }
 
             print("✅ [CommandProcessor] Command \(command.commandId) executed successfully, updating status...")
-            // Mark command as executed
             _ = try await cloudKitClient.updateCommandStatus(
                 recordID: recordID,
                 status: .executed,
@@ -131,7 +164,6 @@ public actor TelemetryCommandProcessor {
             print("✅ [CommandProcessor] Command \(command.commandId) marked as executed")
         } catch {
             print("❌ [CommandProcessor] Command \(command.commandId) failed: \(error)")
-            // Mark command as failed
             do {
                 _ = try await cloudKitClient.updateCommandStatus(
                     recordID: recordID,

@@ -29,6 +29,11 @@ struct Live_Diagnostics_Example_ClientApp: App {
 
                     // Start the telemetry lifecycle (loads settings, reconciles with server, sets up command processing)
                     await telemetryLifecycle.startup()
+
+                    // Register example scenarios
+                    try? await telemetryLifecycle.registerScenarios(
+                        ExampleScenario.allCases.map(\.rawValue)
+                    )
                 }
         }
     }

@@ -299,6 +299,65 @@ final class TelemetryCommandRecordTests: XCTestCase {
         XCTAssertNotEqual(command1, command3)
     }
 
+    // MARK: - Scenario Command Tests
+
+    func testEnableScenarioActionRawValue() {
+        XCTAssertEqual(TelemetrySchema.CommandAction.enableScenario.rawValue, "enableScenario")
+        XCTAssertEqual(TelemetrySchema.CommandAction.disableScenario.rawValue, "disableScenario")
+    }
+
+    func testInitWithScenarioName() {
+        let command = TelemetryCommandRecord(
+            clientId: "test-client",
+            action: .enableScenario,
+            scenarioName: "NetworkRequests"
+        )
+
+        XCTAssertEqual(command.action, .enableScenario)
+        XCTAssertEqual(command.scenarioName, "NetworkRequests")
+    }
+
+    func testInitWithoutScenarioName() {
+        let command = TelemetryCommandRecord(
+            clientId: "test-client",
+            action: .enable
+        )
+
+        XCTAssertNil(command.scenarioName, "scenarioName should be nil for non-scenario commands")
+    }
+
+    func testRoundTripWithScenarioName() throws {
+        let original = TelemetryCommandRecord(
+            commandId: "scenario-roundtrip",
+            clientId: "test-client",
+            action: .enableScenario,
+            scenarioName: "DataSync",
+            created: Date(timeIntervalSince1970: 1000),
+            status: .pending
+        )
+
+        let ckRecord = original.toCKRecord()
+        let restored = try TelemetryCommandRecord(record: ckRecord)
+
+        XCTAssertEqual(restored.action, .enableScenario)
+        XCTAssertEqual(restored.scenarioName, "DataSync")
+    }
+
+    func testRoundTripWithoutScenarioName() throws {
+        let original = TelemetryCommandRecord(
+            commandId: "no-scenario",
+            clientId: "test-client",
+            action: .enable,
+            created: Date(timeIntervalSince1970: 1000),
+            status: .pending
+        )
+
+        let ckRecord = original.toCKRecord()
+        let restored = try TelemetryCommandRecord(record: ckRecord)
+
+        XCTAssertNil(restored.scenarioName)
+    }
+
     func testAllCommandActions() {
         for action in TelemetrySchema.CommandAction.allCases {
             let command = TelemetryCommandRecord(
