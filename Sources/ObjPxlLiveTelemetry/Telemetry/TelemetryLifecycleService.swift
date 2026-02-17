@@ -64,6 +64,7 @@ public final class TelemetryLifecycleService {
     private var subscriptionManager: (any TelemetrySubscriptionManaging)?
     private let scenarioStore: any TelemetryScenarioStoring
     private var scenarioRecords: [String: TelemetryScenarioRecord] = [:]
+    private var pendingScenarioNames: [String]?
 
     public init(
         settingsStore: any TelemetrySettingsStoring = UserDefaultsTelemetrySettingsStore(),
@@ -148,6 +149,11 @@ public final class TelemetryLifecycleService {
         let shouldBeEnabled = settings.telemetryRequested && settings.telemetrySendingEnabled
         await logger.activate(enabled: shouldBeEnabled)
 
+        // Register any scenarios that were deferred because clientIdentifier wasn't available
+        if let pending = pendingScenarioNames, let clientId = settings.clientIdentifier {
+            await performScenarioRegistration(pending, clientId: clientId)
+        }
+
         await MainActor.run {
             self.isRestorationInProgress = false
         }
@@ -211,6 +217,11 @@ public final class TelemetryLifecycleService {
 
             // Set up command processing and subscription
             await setupCommandProcessing(for: identifier)
+
+            // Register any deferred scenarios now that we have a client ID
+            if let pending = pendingScenarioNames {
+                await performScenarioRegistration(pending, clientId: identifier)
+            }
         } catch {
             let description = error.localizedDescription
             reconciliation = nil
@@ -284,8 +295,25 @@ public final class TelemetryLifecycleService {
     // MARK: - Scenarios
 
     public func registerScenarios(_ scenarioNames: [String]) async throws {
-        guard let clientId = settings.clientIdentifier else { return }
+        guard let clientId = settings.clientIdentifier else {
+            // No client ID yet — store for later registration after startup completes
+            pendingScenarioNames = scenarioNames
+            // Still load persisted states so the UI shows something immediately
+            var states: [String: Bool] = [:]
+            for name in scenarioNames {
+                let persisted = await scenarioStore.loadState(for: name)
+                states[name] = persisted ?? false
+            }
+            scenarioStates = states
+            await pushScenarioStatesToLogger()
+            return
+        }
 
+        pendingScenarioNames = nil
+        await performScenarioRegistration(scenarioNames, clientId: clientId)
+    }
+
+    private func performScenarioRegistration(_ scenarioNames: [String], clientId: String) async {
         var records: [TelemetryScenarioRecord] = []
         var states: [String: Bool] = [:]
 
@@ -300,9 +328,13 @@ public final class TelemetryLifecycleService {
             ))
         }
 
-        let saved = try await cloudKitClient.createScenarios(records)
-        for record in saved {
-            scenarioRecords[record.scenarioName] = record
+        do {
+            let saved = try await cloudKitClient.createScenarios(records)
+            for record in saved {
+                scenarioRecords[record.scenarioName] = record
+            }
+        } catch {
+            print("⚠️ [LifecycleService] Failed to create scenario records in CloudKit: \(error)")
         }
 
         scenarioStates = states

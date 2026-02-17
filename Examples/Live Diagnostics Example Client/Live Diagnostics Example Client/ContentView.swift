@@ -26,6 +26,7 @@ struct ContentView: View {
                     Divider()
                     TestEventSection(
                         telemetryLogger: telemetryLogger,
+                        telemetryLifecycle: telemetryLifecycle,
                         lastEvent: $lastEvent
                     )
                     Divider()
@@ -54,21 +55,56 @@ struct ContentView: View {
 
 private struct TestEventSection: View {
     let telemetryLogger: any TelemetryLogging
+    let telemetryLifecycle: TelemetryLifecycleService
     @Binding var lastEvent: String?
+    @State private var selectedScenario: ExampleScenario?
+    @State private var selectedLogLevel: TelemetryLogLevel = .info
 
     var body: some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Verify telemetry")
                 .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Scenario", selection: $selectedScenario) {
+                    Text("None").tag(ExampleScenario?.none)
+                    ForEach(ExampleScenario.allCases, id: \.rawValue) { scenario in
+                        Text(scenario.rawValue).tag(ExampleScenario?.some(scenario))
+                    }
+                }
+
+                if selectedScenario != nil {
+                    Picker("Log Level", selection: $selectedLogLevel) {
+                        ForEach(TelemetryLogLevel.allCases, id: \.rawValue) { level in
+                            Text(level.rawValue).tag(level)
+                        }
+                    }
+                }
+            }
 
             HStack {
                 Button("Send Test Event", systemImage: "paperplane") {
                     let timestamp = Date()
-                    telemetryLogger.logEvent(
-                        name: "test_button_tap",
-                        property1: "timestamp=\(timestamp.ISO8601Format())"
-                    )
-                    lastEvent = "Logged test_button_tap at \(timestamp.formatted(date: .omitted, time: .standard))"
+                    if let scenario = selectedScenario {
+                        telemetryLogger.logEvent(
+                            name: "test_button_tap",
+                            scenario: scenario.rawValue,
+                            level: selectedLogLevel,
+                            property1: "timestamp=\(timestamp.ISO8601Format())"
+                        )
+                        let enabled = telemetryLifecycle.scenarioStates[scenario.rawValue] ?? false
+                        if enabled {
+                            lastEvent = "Logged test_button_tap [\(scenario.rawValue)/\(selectedLogLevel.rawValue)] at \(timestamp.formatted(date: .omitted, time: .standard))"
+                        } else {
+                            lastEvent = "Event discarded — scenario \(scenario.rawValue) is disabled"
+                        }
+                    } else {
+                        telemetryLogger.logEvent(
+                            name: "test_button_tap",
+                            property1: "timestamp=\(timestamp.ISO8601Format())"
+                        )
+                        lastEvent = "Logged test_button_tap at \(timestamp.formatted(date: .omitted, time: .standard))"
+                    }
                 }
                 .buttonStyle(.borderedProminent)
 
