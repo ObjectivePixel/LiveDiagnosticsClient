@@ -1173,38 +1173,6 @@ public struct TelemetryToggleView: View {
 
 ---
 
-### TelemetryClient (HTTP)
-
-```swift
-public actor TelemetryClient {
-    public struct Configuration: Sendable, Equatable {
-        public var endpoint: URL
-        public var apiKey: String?
-        public var batchSize: Int
-        public var defaultAttributes: [String: String]
-        public init(endpoint: URL, apiKey: String?, batchSize: Int, defaultAttributes: [String: String])
-    }
-
-    public struct Event: Codable, Equatable, Sendable {
-        public var name: String
-        public var attributes: [String: String]
-        public var timestamp: Date
-        public init(name: String, attributes: [String: String], timestamp: Date)
-    }
-
-    public enum ClientError: Error, Equatable {
-        case invalidResponse(statusCode: Int)
-        case failedEncoding
-    }
-
-    public init(configuration: Configuration, session: URLSession, encoder: JSONEncoder)
-    @discardableResult public func track(_ event: Event) async throws -> Bool
-    @discardableResult public func flush() async throws -> Bool
-}
-```
-
----
-
 ### DebugInfo
 
 ```swift
