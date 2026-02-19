@@ -219,6 +219,12 @@ public actor TelemetryLogger: TelemetryLogging {
 
     public func setEnabled(_ enabled: Bool) async {
         stateLock.withLock { $0 = .ready(enabled: enabled) }
+
+        // If enabling and the consume/flush pipeline was never started
+        // (e.g. activate was called with enabled: false), bootstrap it now.
+        if enabled, consumeTask == nil {
+            await bootstrap(stream: deferredStream)
+        }
     }
 
     public func flush() async {
