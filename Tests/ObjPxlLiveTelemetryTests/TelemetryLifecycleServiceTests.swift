@@ -600,6 +600,349 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertTrue(unregistered)
     }
 
+    // MARK: - Zero CloudKit Calls When Disabled
+
+    func testStartupWithNeverEnabledTelemetryMakesNoCloudKitCalls() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        let backupClient = MockBackupClient()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "no-call-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: backupClient)
+        )
+
+        // Default settings: telemetryRequested=false, clientIdentifier=nil
+        await service.startup()
+
+        // Wait for background restore to complete
+        try await Task.sleep(for: .milliseconds(200))
+
+        // Backup restore should have been skipped entirely
+        let loadCount = await backupClient.loadCallCount
+        XCTAssertEqual(loadCount, 0, "Backup restore should be skipped when telemetry was never enabled")
+        XCTAssertEqual(service.status, TelemetryLifecycleService.Status.disabled)
+        XCTAssertFalse(service.isRestorationInProgress)
+    }
+
+    func testRegisterScenariosDoesNotCreateDuplicates() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "dup-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "dup-test",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "dup-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+
+        // Register scenarios the first time
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let firstCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(firstCount, 2)
+
+        // Register the same scenarios again
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let secondCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(secondCount, 2, "Registering the same scenarios again should not create duplicates")
+    }
+
+    // MARK: - Scenario Tests
+
+    func testRegisterScenariosWritesToCloudKit() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "scenario-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "scenario-test",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+
+        let scenarios = await cloudKit.scenarioList()
+        XCTAssertEqual(scenarios.count, 2)
+        XCTAssertTrue(scenarios.contains { $0.scenarioName == "NetworkRequests" })
+        XCTAssertTrue(scenarios.contains { $0.scenarioName == "DataSync" })
+        // Default state is disabled
+        XCTAssertTrue(scenarios.allSatisfy { !$0.isEnabled })
+
+        XCTAssertEqual(service.scenarioStates.count, 2)
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], false)
+        XCTAssertEqual(service.scenarioStates["DataSync"], false)
+    }
+
+    func testRegisterScenariosRestoresPersistedState() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "scenario-restore"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "scenario-restore",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+        await scenarioStore.saveState(for: "NetworkRequests", isEnabled: true)
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-restore"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], true, "Previously enabled scenario should be restored")
+        XCTAssertEqual(service.scenarioStates["DataSync"], false, "New scenario should default to disabled")
+
+        let scenarios = await cloudKit.scenarioList()
+        let network = try XCTUnwrap(scenarios.first { $0.scenarioName == "NetworkRequests" })
+        XCTAssertTrue(network.isEnabled, "CloudKit record should reflect persisted state")
+    }
+
+    func testSetScenarioEnabledUpdatesState() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "scenario-toggle"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "scenario-toggle",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+        let spyLogger = SpyTelemetryLogger()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-toggle"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: spyLogger,
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+        try await service.registerScenarios(["NetworkRequests"])
+        try await service.setScenarioEnabled("NetworkRequests", enabled: true)
+
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], true)
+
+        // Verify persistence
+        let persisted = await scenarioStore.loadState(for: "NetworkRequests")
+        XCTAssertEqual(persisted, true)
+
+        // Verify CloudKit record updated
+        let scenarios = await cloudKit.scenarioList()
+        let record = try XCTUnwrap(scenarios.first { $0.scenarioName == "NetworkRequests" })
+        XCTAssertTrue(record.isEnabled)
+
+        // Verify logger received state push
+        let loggerStates = await spyLogger.lastScenarioStates
+        XCTAssertEqual(loggerStates["NetworkRequests"], true)
+    }
+
+    func testEndSessionDeletesScenariosFromCloudKit() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "scenario-end"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "scenario-end",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-end"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+        try await service.registerScenarios(["NetworkRequests"])
+        try await service.setScenarioEnabled("NetworkRequests", enabled: true)
+
+        try await service.endSession()
+
+        let scenarios = await cloudKit.scenarioList()
+        XCTAssertTrue(scenarios.isEmpty, "CloudKit scenarios should be deleted after endSession")
+        XCTAssertTrue(service.scenarioStates.isEmpty, "Local scenario states should be cleared")
+
+        // But persisted state should be preserved
+        let persisted = await scenarioStore.loadState(for: "NetworkRequests")
+        XCTAssertEqual(persisted, true, "Persisted scenario state should survive endSession")
+    }
+
+    func testEnableScenarioCommandUpdatesState() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "cmd-scenario-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "cmd-scenario-test",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        // Create a pending enableScenario command
+        _ = try await cloudKit.createCommand(
+            TelemetryCommandRecord(
+                clientId: "cmd-scenario-test",
+                action: .enableScenario,
+                scenarioName: "NetworkRequests"
+            )
+        )
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-scenario-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+
+        // Register scenarios so the service knows about them
+        try await service.registerScenarios(["NetworkRequests"])
+
+        // Process the pending command
+        try await Task.sleep(for: .milliseconds(100))
+
+        // The enableScenario command should have been processed during reconcile
+        let commands = await cloudKit.fetchAllCommands()
+        let cmd = try XCTUnwrap(commands.first)
+        XCTAssertEqual(cmd.action, .enableScenario)
+        XCTAssertEqual(cmd.scenarioName, "NetworkRequests")
+    }
+
+    func testScenarioCommandWithoutNameMarkedFailed() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "cmd-no-name"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "cmd-no-name",
+            created: .now,
+            isEnabled: true
+        )
+
+        // Create a command without scenarioName
+        _ = try await cloudKit.createCommand(
+            TelemetryCommandRecord(
+                clientId: "cmd-no-name",
+                action: .enableScenario,
+                scenarioName: nil
+            )
+        )
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-no-name"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager()
+        )
+
+        _ = await service.reconcile()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let commands = await cloudKit.fetchAllCommands()
+        let cmd = try XCTUnwrap(commands.first)
+        XCTAssertEqual(cmd.status, .failed, "Scenario command without scenarioName should be marked failed")
+        XCTAssertNotNil(cmd.errorMessage)
+    }
+
     func testGracefulDegradationOnSubscriptionFailure() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -669,10 +1012,19 @@ private actor SpyTelemetryLogger: TelemetryLogging {
     private(set) var didShutdown = false
     private(set) var isEnabled = false
     private(set) var isActivated = false
+    private(set) var lastScenarioStates: [String: Bool] = [:]
     nonisolated let currentSessionId: String = "test-session-id"
 
     nonisolated func logEvent(name: String, property1: String?) {
         Task { await register(name: name) }
+    }
+
+    nonisolated func logEvent(name: String, scenario: String, level: TelemetryLogLevel, property1: String?) {
+        Task { await register(name: name) }
+    }
+
+    func updateScenarioStates(_ states: [String: Bool]) {
+        lastScenarioStates = states
     }
 
     func activate(enabled: Bool) async {
@@ -699,6 +1051,7 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
     private var records: [CKRecord] = []
     private var clients: [TelemetryClientRecord] = []
     private var commands: [TelemetryCommandRecord] = []
+    private var scenarios: [TelemetryScenarioRecord] = []
     private var subscriptions: [String: CKSubscription.ID] = [:]
     private var createError: Error?
     private var subscriptionError: Error?
@@ -828,6 +1181,7 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
             commandId: command.commandId,
             clientId: command.clientId,
             action: command.action,
+            scenarioName: command.scenarioName,
             created: command.created,
             status: command.status,
             executedAt: command.executedAt,
@@ -906,6 +1260,51 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
         subscriptions.values.first { $0 == id }
     }
 
+    // MARK: - Scenario Methods
+
+    func createScenarios(_ newScenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord] {
+        let saved = newScenarios.map { scenario in
+            TelemetryScenarioRecord(
+                recordID: CKRecord.ID(recordName: UUID().uuidString),
+                clientId: scenario.clientId,
+                scenarioName: scenario.scenarioName,
+                isEnabled: scenario.isEnabled,
+                created: scenario.created
+            )
+        }
+        scenarios.append(contentsOf: saved)
+        return saved
+    }
+
+    func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord] {
+        if let clientId {
+            return scenarios.filter { $0.clientId == clientId }
+        }
+        return scenarios
+    }
+
+    func updateScenario(_ scenario: TelemetryScenarioRecord) async throws -> TelemetryScenarioRecord {
+        guard let index = scenarios.firstIndex(where: { $0.recordID == scenario.recordID }) else {
+            throw TelemetryScenarioRecord.Error.missingRecordID
+        }
+        scenarios[index] = scenario
+        return scenario
+    }
+
+    func deleteScenarios(forClient clientId: String) async throws -> Int {
+        let matching = scenarios.filter { $0.clientId == clientId }
+        scenarios.removeAll { $0.clientId == clientId }
+        return matching.count
+    }
+
+    func createScenarioSubscription() async throws -> CKSubscription.ID {
+        "TelemetryScenario-All"
+    }
+
+    func scenarioList() async -> [TelemetryScenarioRecord] {
+        scenarios
+    }
+
     // MARK: - Test Helpers
 
     func setCreateError(_ error: Error?) async {
@@ -929,10 +1328,39 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
     }
 }
 
-private struct MockBackupClient: CloudKitSettingsBackupClientProtocol {
+private actor MockBackupClient: CloudKitSettingsBackupClientProtocol {
+    private(set) var loadCallCount = 0
+
     func saveSettings(_ settings: TelemetrySettings) async throws {}
-    func loadSettings() async throws -> TelemetrySettings? { nil }
+    func loadSettings() async throws -> TelemetrySettings? {
+        loadCallCount += 1
+        return nil
+    }
     func clearSettings() async throws {}
+}
+
+private actor InMemoryScenarioStore: TelemetryScenarioStoring {
+    private var states: [String: Bool] = [:]
+
+    func loadState(for scenarioName: String) async -> Bool? {
+        states[scenarioName]
+    }
+
+    func loadAllStates() async -> [String: Bool] {
+        states
+    }
+
+    func saveState(for scenarioName: String, isEnabled: Bool) async {
+        states[scenarioName] = isEnabled
+    }
+
+    func removeState(for scenarioName: String) async {
+        states.removeValue(forKey: scenarioName)
+    }
+
+    func removeAllStates() async {
+        states.removeAll()
+    }
 }
 
 private actor MockSubscriptionManager: TelemetrySubscriptionManaging {

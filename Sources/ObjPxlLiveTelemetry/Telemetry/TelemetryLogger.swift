@@ -10,6 +10,15 @@ public protocol TelemetryLogging: Actor, Sendable {
         property1: String?,
     )
 
+    nonisolated func logEvent(
+        name: String,
+        scenario: String,
+        level: TelemetryLogLevel,
+        property1: String?
+    )
+
+    func updateScenarioStates(_ states: [String: Bool])
+
     func activate(enabled: Bool) async
     func setEnabled(_ enabled: Bool) async
     func flush() async
@@ -23,6 +32,20 @@ public extension TelemetryLogging {
     ) {
         logEvent(
             name: name,
+            property1: property1
+        )
+    }
+
+    nonisolated func logEvent(
+        name: String,
+        scenario: String,
+        level: TelemetryLogLevel = .info,
+        property1: String? = nil
+    ) {
+        logEvent(
+            name: name,
+            scenario: scenario,
+            level: level,
             property1: property1
         )
     }
@@ -63,6 +86,7 @@ public actor TelemetryLogger: TelemetryLogging {
     private nonisolated let continuationLock = OSAllocatedUnfairLock<AsyncStream<TelemetryEvent>.Continuation?>(initialState: nil)
     private nonisolated let shutdownLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     private nonisolated let stateLock = OSAllocatedUnfairLock<LoggerState>(initialState: .initializing)
+    private nonisolated let scenarioStatesLock = OSAllocatedUnfairLock<[String: Bool]>(initialState: [:])
     public nonisolated let currentSessionId: String
     private let deferredStream: AsyncStream<TelemetryEvent>
 
@@ -81,6 +105,10 @@ public actor TelemetryLogger: TelemetryLogging {
         let capturedContinuation = continuation
         continuationLock.withLock { $0 = capturedContinuation }
         self.deferredStream = stream
+    }
+
+    public func updateScenarioStates(_ states: [String: Bool]) {
+        scenarioStatesLock.withLock { $0 = states }
     }
 
     // without nonisolated, this must be called async which isn't compatible for the constructor scenario
@@ -123,6 +151,52 @@ public actor TelemetryLogger: TelemetryLogging {
         }
     }
 
+    public nonisolated func logEvent(
+        name: String,
+        scenario: String,
+        level: TelemetryLogLevel,
+        property1: String?
+    ) {
+        // Fast nonisolated check — if scenario is disabled, discard immediately
+        let isEnabled = scenarioStatesLock.withLock { $0[scenario] ?? false }
+        guard isEnabled else { return }
+
+        let isShutdown = shutdownLock.withLock { $0 }
+        guard !isShutdown else { return }
+
+        let state = stateLock.withLock { $0 }
+        switch state {
+        case .initializing:
+            let event = TelemetryEvent(
+                name: name,
+                timestamp: Date(),
+                sessionId: currentSessionId,
+                deviceInfo: deviceInfo,
+                threadId: Self.currentThreadId(),
+                property1: property1,
+                scenario: scenario,
+                level: level
+            )
+            Task { await self.queueEvent(event) }
+        case .ready(enabled: false):
+            return
+        case .ready(enabled: true):
+            let event = TelemetryEvent(
+                name: name,
+                timestamp: Date(),
+                sessionId: currentSessionId,
+                deviceInfo: deviceInfo,
+                threadId: Self.currentThreadId(),
+                property1: property1,
+                scenario: scenario,
+                level: level
+            )
+            _ = continuationLock.withLock { continuation in
+                continuation?.yield(event)
+            }
+        }
+    }
+
     private func queueEvent(_ event: TelemetryEvent) {
         queuedEvents.append(event)
     }
@@ -145,6 +219,12 @@ public actor TelemetryLogger: TelemetryLogging {
 
     public func setEnabled(_ enabled: Bool) async {
         stateLock.withLock { $0 = .ready(enabled: enabled) }
+
+        // If enabling and the consume/flush pipeline was never started
+        // (e.g. activate was called with enabled: false), bootstrap it now.
+        if enabled, consumeTask == nil {
+            await bootstrap(stream: deferredStream)
+        }
     }
 
     public func flush() async {
@@ -166,12 +246,12 @@ public actor TelemetryLogger: TelemetryLogging {
 
     private func bootstrap(stream: AsyncStream<TelemetryEvent>) async {
         consumeTask = Task { await consume(stream: stream) }
-        
+
         guard await client.validateSchema() else {
             offline = true
             return
         }
-        
+
         flushTask = Task { await periodicFlush() }
     }
 
@@ -242,6 +322,8 @@ public actor NoopTelemetryLogger: TelemetryLogging {
     public init() {}
 
     public nonisolated func logEvent(name: String, property1: String?) {}
+    public nonisolated func logEvent(name: String, scenario: String, level: TelemetryLogLevel, property1: String?) {}
+    public func updateScenarioStates(_ states: [String: Bool]) {}
     public func activate(enabled: Bool) async {}
     public func setEnabled(_ enabled: Bool) async {}
     public func flush() async {}

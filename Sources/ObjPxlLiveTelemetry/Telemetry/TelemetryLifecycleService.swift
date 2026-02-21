@@ -49,6 +49,7 @@ public final class TelemetryLifecycleService {
     public private(set) var clientRecord: TelemetryClientRecord?
     public private(set) var statusMessage: String?
     public private(set) var isRestorationInProgress = false
+    public private(set) var scenarioStates: [String: Bool] = [:]
     private var hasStartedUp = false
 
     public var telemetryLogger: any TelemetryLogging { logger }
@@ -61,6 +62,9 @@ public final class TelemetryLifecycleService {
     private let syncCoordinator: TelemetrySettingsSyncCoordinator
     private var commandProcessor: TelemetryCommandProcessor?
     private var subscriptionManager: (any TelemetrySubscriptionManaging)?
+    private let scenarioStore: any TelemetryScenarioStoring
+    private var scenarioRecords: [String: TelemetryScenarioRecord] = [:]
+    private var pendingScenarioNames: [String]?
 
     public init(
         settingsStore: any TelemetrySettingsStoring = UserDefaultsTelemetrySettingsStore(),
@@ -69,7 +73,8 @@ public final class TelemetryLifecycleService {
         configuration: Configuration,
         logger: (any TelemetryLogging)? = nil,
         syncCoordinator: TelemetrySettingsSyncCoordinator? = nil,
-        subscriptionManager: (any TelemetrySubscriptionManaging)? = nil
+        subscriptionManager: (any TelemetrySubscriptionManaging)? = nil,
+        scenarioStore: (any TelemetryScenarioStoring)? = nil
     ) {
         let resolvedCloudKitClient = cloudKitClient ?? CloudKitClient(containerIdentifier: configuration.containerIdentifier)
         self.settingsStore = settingsStore
@@ -80,11 +85,11 @@ public final class TelemetryLifecycleService {
             backupClient: CloudKitSettingsBackupClient(containerIdentifier: configuration.containerIdentifier)
         )
         self.subscriptionManager = subscriptionManager ?? TelemetrySubscriptionManager(cloudKitClient: resolvedCloudKitClient)
+        self.scenarioStore = scenarioStore ?? UserDefaultsTelemetryScenarioStore()
         if let logger {
             self.logger = logger
         } else {
-            let client = CloudKitClient(containerIdentifier: configuration.containerIdentifier)
-            self.logger = TelemetryLogger(configuration: configuration.loggerConfiguration, client: client)
+            self.logger = TelemetryLogger(configuration: configuration.loggerConfiguration, client: resolvedCloudKitClient)
         }
     }
 
@@ -109,6 +114,17 @@ public final class TelemetryLifecycleService {
     }
 
     private func performBackgroundRestore() async {
+        // If telemetry was never enabled, skip the CloudKit backup restore entirely
+        if !settings.telemetryRequested && settings.clientIdentifier == nil {
+            reconciliation = .allDisabled
+            setStatus(.disabled, message: "Telemetry disabled")
+            await logger.activate(enabled: false)
+            await MainActor.run {
+                self.isRestorationInProgress = false
+            }
+            return
+        }
+
         let backupResult = await syncCoordinator.restoreSettingsFromBackup()
 
         await MainActor.run {
@@ -142,6 +158,11 @@ public final class TelemetryLifecycleService {
         // Activate logger with final enabled state
         let shouldBeEnabled = settings.telemetryRequested && settings.telemetrySendingEnabled
         await logger.activate(enabled: shouldBeEnabled)
+
+        // Register any scenarios that were deferred because clientIdentifier wasn't available
+        if let pending = pendingScenarioNames, let clientId = settings.clientIdentifier {
+            await performScenarioRegistration(pending, clientId: clientId)
+        }
 
         await MainActor.run {
             self.isRestorationInProgress = false
@@ -206,6 +227,11 @@ public final class TelemetryLifecycleService {
 
             // Set up command processing and subscription
             await setupCommandProcessing(for: identifier)
+
+            // Register any deferred scenarios now that we have a client ID
+            if let pending = pendingScenarioNames {
+                await performScenarioRegistration(pending, clientId: identifier)
+            }
         } catch {
             let description = error.localizedDescription
             reconciliation = nil
@@ -232,7 +258,7 @@ public final class TelemetryLifecycleService {
         reconciliation = reason ?? .allDisabled
         settings = await resetAndClearBackup()
 
-        // 4. Delete remote records
+        // 4. Delete remote records (including scenarios)
         do {
             if let identifier {
                 let remoteClients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
@@ -241,11 +267,15 @@ public final class TelemetryLifecycleService {
                         try await cloudKitClient.deleteTelemetryClient(recordID: recordID)
                     }
                 }
+                _ = try await cloudKitClient.deleteScenarios(forClient: identifier)
             }
             _ = try await cloudKitClient.deleteAllTelemetryEvents()
             if let identifier {
                 _ = try await cloudKitClient.deleteAllCommands(for: identifier)
             }
+            scenarioRecords.removeAll()
+            scenarioStates.removeAll()
+            await pushScenarioStatesToLogger()
         } catch {
             let description = error.localizedDescription
             setStatus(.error("Disable failed: \(description)"), message: "Disable failed: \(description)")
@@ -270,6 +300,98 @@ public final class TelemetryLifecycleService {
         }
         print("📲 [LifecycleService] Forwarding to command processor...")
         return await processor.handleRemoteNotification(userInfo)
+    }
+
+    // MARK: - Scenarios
+
+    public func registerScenarios(_ scenarioNames: [String]) async throws {
+        guard let clientId = settings.clientIdentifier else {
+            // No client ID yet — store for later registration after startup completes
+            pendingScenarioNames = scenarioNames
+            // Still load persisted states so the UI shows something immediately
+            var states: [String: Bool] = [:]
+            for name in scenarioNames {
+                let persisted = await scenarioStore.loadState(for: name)
+                states[name] = persisted ?? false
+            }
+            scenarioStates = states
+            await pushScenarioStatesToLogger()
+            return
+        }
+
+        pendingScenarioNames = nil
+        await performScenarioRegistration(scenarioNames, clientId: clientId)
+    }
+
+    private func performScenarioRegistration(_ scenarioNames: [String], clientId: String) async {
+        var states: [String: Bool] = [:]
+
+        // 1. Load local persisted states for all scenarios
+        for name in scenarioNames {
+            let persisted = await scenarioStore.loadState(for: name)
+            states[name] = persisted ?? false
+        }
+
+        do {
+            // 2. Fetch existing scenarios from CloudKit
+            let existingScenarios = try await cloudKitClient.fetchScenarios(forClient: clientId)
+
+            // 3. Build lookup by scenarioName
+            var existingByName: [String: TelemetryScenarioRecord] = [:]
+            for scenario in existingScenarios {
+                existingByName[scenario.scenarioName] = scenario
+            }
+
+            // 4. Separate into existing and new
+            var newRecords: [TelemetryScenarioRecord] = []
+            for name in scenarioNames {
+                if let existing = existingByName[name] {
+                    scenarioRecords[name] = existing
+                } else {
+                    newRecords.append(TelemetryScenarioRecord(
+                        clientId: clientId,
+                        scenarioName: name,
+                        isEnabled: states[name] ?? false
+                    ))
+                }
+            }
+
+            // 5. Only create if there are new scenarios
+            if !newRecords.isEmpty {
+                let saved = try await cloudKitClient.createScenarios(newRecords)
+                for record in saved {
+                    scenarioRecords[record.scenarioName] = record
+                }
+            }
+        } catch {
+            print("⚠️ [LifecycleService] Failed to register scenarios in CloudKit: \(error)")
+        }
+
+        scenarioStates = states
+        await pushScenarioStatesToLogger()
+    }
+
+    public func setScenarioEnabled(_ scenarioName: String, enabled: Bool) async throws {
+        scenarioStates[scenarioName] = enabled
+        await scenarioStore.saveState(for: scenarioName, isEnabled: enabled)
+
+        if var record = scenarioRecords[scenarioName] {
+            record.isEnabled = enabled
+            let updated = try await cloudKitClient.updateScenario(record)
+            scenarioRecords[scenarioName] = updated
+        }
+
+        await pushScenarioStatesToLogger()
+    }
+
+    public func endSession() async throws {
+        guard let clientId = settings.clientIdentifier else { return }
+        _ = try await cloudKitClient.deleteScenarios(forClient: clientId)
+        _ = try await cloudKitClient.deleteAllRecords()
+        scenarioRecords.removeAll()
+        scenarioStates.removeAll()
+        await pushScenarioStatesToLogger()
+        // Local scenario persistence intentionally kept
     }
 
     @discardableResult
@@ -377,6 +499,16 @@ private extension TelemetryLifecycleService {
                 guard let self else { return }
                 print("🎯 [LifecycleService] onDeleteEvents callback triggered")
                 try await self.handleDeleteEventsCommand()
+            },
+            onEnableScenario: { [weak self] scenarioName in
+                guard let self else { return }
+                print("🎯 [LifecycleService] onEnableScenario callback triggered for '\(scenarioName)'")
+                try await self.setScenarioEnabled(scenarioName, enabled: true)
+            },
+            onDisableScenario: { [weak self] scenarioName in
+                guard let self else { return }
+                print("🎯 [LifecycleService] onDisableScenario callback triggered for '\(scenarioName)'")
+                try await self.setScenarioEnabled(scenarioName, enabled: false)
             }
         )
         commandProcessor = processor
@@ -484,6 +616,10 @@ private extension TelemetryLifecycleService {
             try? await syncCoordinator.clearBackup()
         }
         return reset
+    }
+
+    func pushScenarioStatesToLogger() async {
+        await logger.updateScenarioStates(scenarioStates)
     }
 
     func statusMessage(for outcome: ReconciliationResult, identifier: String) -> String {

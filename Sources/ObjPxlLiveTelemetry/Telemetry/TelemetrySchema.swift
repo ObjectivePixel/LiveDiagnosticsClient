@@ -6,6 +6,7 @@ public struct TelemetrySchema: Sendable {
     public static let clientRecordType = "TelemetryClient"
     public static let settingsBackupRecordType = "TelemetrySettingsBackup"
     public static let commandRecordType = "TelemetryCommand"
+    public static let scenarioRecordType = "TelemetryScenario"
 
     public enum Field: String, CaseIterable {
         case eventId
@@ -19,10 +20,12 @@ public struct TelemetrySchema: Sendable {
         case appVersion
         case threadId
         case property1
+        case scenario
+        case logLevel
 
         public var isIndexed: Bool {
             switch self {
-            case .eventName, .eventTimestamp, .sessionId, .deviceType, .deviceName, .appVersion:
+            case .eventName, .eventTimestamp, .sessionId, .deviceType, .deviceName, .appVersion, .scenario, .logLevel:
                 return true
             default:
                 return false
@@ -89,21 +92,47 @@ public struct TelemetrySchema: Sendable {
         case status
         case executedAt
         case errorMessage
+        case scenarioName
 
         public var isIndexed: Bool {
             switch self {
             case .commandId, .clientId, .created, .status:
                 return true
-            case .action, .executedAt, .errorMessage:
+            case .action, .executedAt, .errorMessage, .scenarioName:
                 return false
             }
         }
 
         public var fieldTypeDescription: String {
             switch self {
-            case .commandId, .clientId, .action, .status, .errorMessage:
+            case .commandId, .clientId, .action, .status, .errorMessage, .scenarioName:
                 return "String"
             case .created, .executedAt:
+                return "Date/Time"
+            }
+        }
+    }
+
+    public enum ScenarioField: String, CaseIterable {
+        case clientId = "clientid"
+        case scenarioName
+        case isEnabled
+        case created
+
+        public var isIndexed: Bool {
+            switch self {
+            case .clientId, .scenarioName, .isEnabled, .created:
+                return true
+            }
+        }
+
+        public var fieldTypeDescription: String {
+            switch self {
+            case .clientId, .scenarioName:
+                return "String"
+            case .isEnabled:
+                return "Int64 (0/1)"
+            case .created:
                 return "Date/Time"
             }
         }
@@ -113,6 +142,8 @@ public struct TelemetrySchema: Sendable {
         case enable
         case disable
         case deleteEvents = "delete_events"
+        case enableScenario
+        case disableScenario
     }
 
     public enum CommandStatus: String, Sendable, CaseIterable {
@@ -126,6 +157,7 @@ public struct TelemetrySchema: Sendable {
         try await validate(recordTypeName: recordType, in: database)
         try await validate(recordTypeName: clientRecordType, in: database)
         try await validate(recordTypeName: commandRecordType, in: database)
+        try await validate(recordTypeName: scenarioRecordType, in: database)
         print("📋 [Schema] All record types validated successfully")
     }
 
@@ -197,6 +229,12 @@ public struct TelemetrySchema: Sendable {
 
         if recordType == Self.commandRecordType {
             return CommandField.allCases
+                .map { "   - \($0.rawValue) (\($0.fieldTypeDescription))\($0.isIndexed ? " ✓ Queryable" : "")" }
+                .joined(separator: "\n")
+        }
+
+        if recordType == Self.scenarioRecordType {
+            return ScenarioField.allCases
                 .map { "   - \($0.rawValue) (\($0.fieldTypeDescription))\($0.isIndexed ? " ✓ Queryable" : "")" }
                 .joined(separator: "\n")
         }

@@ -112,6 +112,110 @@ final class TelemetryLoggerTests: XCTestCase {
         let savedCount = await spy.savedRecordCount
         XCTAssertEqual(savedCount, 0, "No CloudKit saves should happen before activate")
     }
+
+    // MARK: - Scenario logging
+
+    func testScenarioEventDroppedWhenScenarioDisabled() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 1, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        await logger.activate(enabled: true)
+        // Scenario states empty — all scenarios default to disabled
+        logger.logEvent(name: "should_not_send", scenario: "MyScenario", level: .info, property1: nil)
+
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let savedCount = await spy.savedRecordCount
+        XCTAssertEqual(savedCount, 0, "Events for disabled scenarios should not be saved")
+
+        await logger.shutdown()
+    }
+
+    func testScenarioEventSentWhenScenarioEnabled() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        await logger.activate(enabled: true)
+        await logger.updateScenarioStates(["MyScenario": true])
+        logger.logEvent(name: "should_send", scenario: "MyScenario", level: .diagnostic, property1: "test")
+
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let savedCount = await spy.savedRecordCount
+        XCTAssertEqual(savedCount, 1, "Events for enabled scenarios should be saved")
+
+        // Verify the record has scenario and logLevel fields
+        let savedRecords = await spy.savedRecords
+        let record = try XCTUnwrap(savedRecords.first)
+        XCTAssertEqual(record[TelemetrySchema.Field.scenario.rawValue] as? String, "MyScenario")
+        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? String, "diagnostic")
+
+        await logger.shutdown()
+    }
+
+    func testUnscopedEventHasDefaultLogLevel() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        await logger.activate(enabled: true)
+        logger.logEvent(name: "plain_event")
+
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let savedRecords = await spy.savedRecords
+        let record = try XCTUnwrap(savedRecords.first)
+        XCTAssertNil(record[TelemetrySchema.Field.scenario.rawValue] as? String)
+        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? String, "info")
+
+        await logger.shutdown()
+    }
+
+    func testUpdateScenarioStatesChangesLoggingBehavior() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        await logger.activate(enabled: true)
+
+        // Initially disabled
+        logger.logEvent(name: "before_enable", scenario: "TestScenario", level: .info, property1: nil)
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+        let countBefore = await spy.savedRecordCount
+        XCTAssertEqual(countBefore, 0)
+
+        // Enable the scenario
+        await logger.updateScenarioStates(["TestScenario": true])
+        logger.logEvent(name: "after_enable", scenario: "TestScenario", level: .info, property1: nil)
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+        let countAfter = await spy.savedRecordCount
+        XCTAssertEqual(countAfter, 1)
+
+        // Disable the scenario again
+        await logger.updateScenarioStates(["TestScenario": false])
+        logger.logEvent(name: "after_disable", scenario: "TestScenario", level: .info, property1: nil)
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+        let countFinal = await spy.savedRecordCount
+        XCTAssertEqual(countFinal, 1, "No new events should be saved after disabling scenario")
+
+        await logger.shutdown()
+    }
 }
 
 // MARK: - Spy CloudKit Client
@@ -120,6 +224,7 @@ final class TelemetryLoggerTests: XCTestCase {
 private actor SpyCloudKitClient: CloudKitClientProtocol {
     private(set) var didValidateSchema = false
     private(set) var savedRecordCount = 0
+    private(set) var savedRecords: [CKRecord] = []
 
     func validateSchema() async -> Bool {
         didValidateSchema = true
@@ -128,6 +233,7 @@ private actor SpyCloudKitClient: CloudKitClientProtocol {
 
     func save(records: [CKRecord]) async throws {
         savedRecordCount += records.count
+        savedRecords.append(contentsOf: records)
     }
 
     // MARK: - Unused stubs
@@ -165,4 +271,9 @@ private actor SpyCloudKitClient: CloudKitClientProtocol {
     func createClientRecordSubscription() async throws -> CKSubscription.ID { "test" }
     func removeSubscription(_ subscriptionID: CKSubscription.ID) async throws {}
     func fetchSubscription(id: CKSubscription.ID) async throws -> CKSubscription.ID? { nil }
+    func createScenarios(_ scenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord] { scenarios }
+    func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord] { [] }
+    func updateScenario(_ scenario: TelemetryScenarioRecord) async throws -> TelemetryScenarioRecord { scenario }
+    func deleteScenarios(forClient clientId: String) async throws -> Int { 0 }
+    func createScenarioSubscription() async throws -> CKSubscription.ID { "test" }
 }

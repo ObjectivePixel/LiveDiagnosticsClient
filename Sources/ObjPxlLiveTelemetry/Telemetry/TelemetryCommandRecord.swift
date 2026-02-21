@@ -29,6 +29,7 @@ public struct TelemetryCommandRecord: Sendable, Equatable {
     public let commandId: String
     public let clientId: String
     public let action: TelemetrySchema.CommandAction
+    public let scenarioName: String?
     public let created: Date
     public var status: TelemetrySchema.CommandStatus
     public var executedAt: Date?
@@ -39,6 +40,7 @@ public struct TelemetryCommandRecord: Sendable, Equatable {
         commandId: String = UUID().uuidString,
         clientId: String,
         action: TelemetrySchema.CommandAction,
+        scenarioName: String? = nil,
         created: Date = .now,
         status: TelemetrySchema.CommandStatus = .pending,
         executedAt: Date? = nil,
@@ -48,6 +50,7 @@ public struct TelemetryCommandRecord: Sendable, Equatable {
         self.commandId = commandId
         self.clientId = clientId
         self.action = action
+        self.scenarioName = scenarioName
         self.created = created
         self.status = status
         self.executedAt = executedAt
@@ -91,6 +94,7 @@ public struct TelemetryCommandRecord: Sendable, Equatable {
         self.commandId = commandId
         self.clientId = clientId
         self.action = action
+        self.scenarioName = record[TelemetrySchema.CommandField.scenarioName.rawValue] as? String
         self.created = created
         self.status = status
         self.executedAt = record[TelemetrySchema.CommandField.executedAt.rawValue] as? Date
@@ -108,6 +112,7 @@ public struct TelemetryCommandRecord: Sendable, Equatable {
         record[TelemetrySchema.CommandField.commandId.rawValue] = commandId as CKRecordValue
         record[TelemetrySchema.CommandField.clientId.rawValue] = clientId as CKRecordValue
         record[TelemetrySchema.CommandField.action.rawValue] = action.rawValue as CKRecordValue
+        record[TelemetrySchema.CommandField.scenarioName.rawValue] = scenarioName as CKRecordValue?
         record[TelemetrySchema.CommandField.created.rawValue] = created as CKRecordValue
         record[TelemetrySchema.CommandField.status.rawValue] = status.rawValue as CKRecordValue
         record[TelemetrySchema.CommandField.executedAt.rawValue] = executedAt as CKRecordValue?
@@ -124,6 +129,7 @@ public struct TelemetryCommandRecord: Sendable, Equatable {
         record[TelemetrySchema.CommandField.commandId.rawValue] = commandId as CKRecordValue
         record[TelemetrySchema.CommandField.clientId.rawValue] = clientId as CKRecordValue
         record[TelemetrySchema.CommandField.action.rawValue] = action.rawValue as CKRecordValue
+        record[TelemetrySchema.CommandField.scenarioName.rawValue] = scenarioName as CKRecordValue?
         record[TelemetrySchema.CommandField.created.rawValue] = created as CKRecordValue
         record[TelemetrySchema.CommandField.status.rawValue] = status.rawValue as CKRecordValue
         record[TelemetrySchema.CommandField.executedAt.rawValue] = executedAt as CKRecordValue?

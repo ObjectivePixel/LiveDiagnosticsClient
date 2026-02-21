@@ -9,6 +9,8 @@ struct TelemetryEvent: Sendable {
     let deviceInfo: DeviceInfo
     let threadId: String
     let property1: String?
+    let scenario: String?
+    let level: TelemetryLogLevel
 
     init(
         name: String,
@@ -16,7 +18,9 @@ struct TelemetryEvent: Sendable {
         sessionId: String,
         deviceInfo: DeviceInfo,
         threadId: String,
-        property1: String? = nil
+        property1: String? = nil,
+        scenario: String? = nil,
+        level: TelemetryLogLevel = .info
     ) {
         self.id = UUID()
         self.name = name
@@ -25,6 +29,8 @@ struct TelemetryEvent: Sendable {
         self.deviceInfo = deviceInfo
         self.threadId = threadId
         self.property1 = property1
+        self.scenario = scenario
+        self.level = level
     }
 
     func toCKRecord() -> CKRecord {
@@ -41,6 +47,8 @@ struct TelemetryEvent: Sendable {
         record["appVersion"] = deviceInfo.appVersion
         record["threadId"] = threadId
         record["property1"] = property1
+        record[TelemetrySchema.Field.scenario.rawValue] = scenario
+        record[TelemetrySchema.Field.logLevel.rawValue] = level.rawValue
 
         return record
     }
