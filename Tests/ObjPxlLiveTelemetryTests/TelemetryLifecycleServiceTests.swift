@@ -600,6 +600,76 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertTrue(unregistered)
     }
 
+    // MARK: - Zero CloudKit Calls When Disabled
+
+    func testStartupWithNeverEnabledTelemetryMakesNoCloudKitCalls() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        let backupClient = MockBackupClient()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "no-call-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: backupClient)
+        )
+
+        // Default settings: telemetryRequested=false, clientIdentifier=nil
+        await service.startup()
+
+        // Wait for background restore to complete
+        try await Task.sleep(for: .milliseconds(200))
+
+        // Backup restore should have been skipped entirely
+        let loadCount = await backupClient.loadCallCount
+        XCTAssertEqual(loadCount, 0, "Backup restore should be skipped when telemetry was never enabled")
+        XCTAssertEqual(service.status, TelemetryLifecycleService.Status.disabled)
+        XCTAssertFalse(service.isRestorationInProgress)
+    }
+
+    func testRegisterScenariosDoesNotCreateDuplicates() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "dup-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "dup-test",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "dup-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+
+        // Register scenarios the first time
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let firstCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(firstCount, 2)
+
+        // Register the same scenarios again
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let secondCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(secondCount, 2, "Registering the same scenarios again should not create duplicates")
+    }
+
     // MARK: - Scenario Tests
 
     func testRegisterScenariosWritesToCloudKit() async throws {
@@ -1258,9 +1328,14 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
     }
 }
 
-private struct MockBackupClient: CloudKitSettingsBackupClientProtocol {
+private actor MockBackupClient: CloudKitSettingsBackupClientProtocol {
+    private(set) var loadCallCount = 0
+
     func saveSettings(_ settings: TelemetrySettings) async throws {}
-    func loadSettings() async throws -> TelemetrySettings? { nil }
+    func loadSettings() async throws -> TelemetrySettings? {
+        loadCallCount += 1
+        return nil
+    }
     func clearSettings() async throws {}
 }
 

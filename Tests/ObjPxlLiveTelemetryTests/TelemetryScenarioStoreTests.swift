@@ -39,9 +39,12 @@ final class TelemetryScenarioStoreTests: XCTestCase {
         await store.saveState(for: "B", isEnabled: false)
         await store.saveState(for: "C", isEnabled: true)
 
-        XCTAssertEqual(await store.loadState(for: "A"), true)
-        XCTAssertEqual(await store.loadState(for: "B"), false)
-        XCTAssertEqual(await store.loadState(for: "C"), true)
+        let a = await store.loadState(for: "A")
+        let b = await store.loadState(for: "B")
+        let c = await store.loadState(for: "C")
+        XCTAssertEqual(a, true)
+        XCTAssertEqual(b, false)
+        XCTAssertEqual(c, true)
     }
 
     func testLoadAllStates() async {
@@ -59,8 +62,10 @@ final class TelemetryScenarioStoreTests: XCTestCase {
         await store.saveState(for: "ToKeep", isEnabled: false)
         await store.removeState(for: "ToRemove")
 
-        XCTAssertNil(await store.loadState(for: "ToRemove"))
-        XCTAssertEqual(await store.loadState(for: "ToKeep"), false)
+        let removed = await store.loadState(for: "ToRemove")
+        let kept = await store.loadState(for: "ToKeep")
+        XCTAssertNil(removed)
+        XCTAssertEqual(kept, false)
     }
 
     func testRemoveAllStates() async {
@@ -70,7 +75,9 @@ final class TelemetryScenarioStoreTests: XCTestCase {
 
         let all = await store.loadAllStates()
         XCTAssertTrue(all.isEmpty)
-        XCTAssertNil(await store.loadState(for: "A"))
-        XCTAssertNil(await store.loadState(for: "B"))
+        let a = await store.loadState(for: "A")
+        let b = await store.loadState(for: "B")
+        XCTAssertNil(a)
+        XCTAssertNil(b)
     }
 }

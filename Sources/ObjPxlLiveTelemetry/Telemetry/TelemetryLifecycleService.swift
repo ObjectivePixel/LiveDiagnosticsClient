@@ -89,8 +89,7 @@ public final class TelemetryLifecycleService {
         if let logger {
             self.logger = logger
         } else {
-            let client = CloudKitClient(containerIdentifier: configuration.containerIdentifier)
-            self.logger = TelemetryLogger(configuration: configuration.loggerConfiguration, client: client)
+            self.logger = TelemetryLogger(configuration: configuration.loggerConfiguration, client: resolvedCloudKitClient)
         }
     }
 
@@ -115,6 +114,17 @@ public final class TelemetryLifecycleService {
     }
 
     private func performBackgroundRestore() async {
+        // If telemetry was never enabled, skip the CloudKit backup restore entirely
+        if !settings.telemetryRequested && settings.clientIdentifier == nil {
+            reconciliation = .allDisabled
+            setStatus(.disabled, message: "Telemetry disabled")
+            await logger.activate(enabled: false)
+            await MainActor.run {
+                self.isRestorationInProgress = false
+            }
+            return
+        }
+
         let backupResult = await syncCoordinator.restoreSettingsFromBackup()
 
         await MainActor.run {
@@ -314,27 +324,47 @@ public final class TelemetryLifecycleService {
     }
 
     private func performScenarioRegistration(_ scenarioNames: [String], clientId: String) async {
-        var records: [TelemetryScenarioRecord] = []
         var states: [String: Bool] = [:]
 
+        // 1. Load local persisted states for all scenarios
         for name in scenarioNames {
             let persisted = await scenarioStore.loadState(for: name)
-            let isEnabled = persisted ?? false
-            states[name] = isEnabled
-            records.append(TelemetryScenarioRecord(
-                clientId: clientId,
-                scenarioName: name,
-                isEnabled: isEnabled
-            ))
+            states[name] = persisted ?? false
         }
 
         do {
-            let saved = try await cloudKitClient.createScenarios(records)
-            for record in saved {
-                scenarioRecords[record.scenarioName] = record
+            // 2. Fetch existing scenarios from CloudKit
+            let existingScenarios = try await cloudKitClient.fetchScenarios(forClient: clientId)
+
+            // 3. Build lookup by scenarioName
+            var existingByName: [String: TelemetryScenarioRecord] = [:]
+            for scenario in existingScenarios {
+                existingByName[scenario.scenarioName] = scenario
+            }
+
+            // 4. Separate into existing and new
+            var newRecords: [TelemetryScenarioRecord] = []
+            for name in scenarioNames {
+                if let existing = existingByName[name] {
+                    scenarioRecords[name] = existing
+                } else {
+                    newRecords.append(TelemetryScenarioRecord(
+                        clientId: clientId,
+                        scenarioName: name,
+                        isEnabled: states[name] ?? false
+                    ))
+                }
+            }
+
+            // 5. Only create if there are new scenarios
+            if !newRecords.isEmpty {
+                let saved = try await cloudKitClient.createScenarios(newRecords)
+                for record in saved {
+                    scenarioRecords[record.scenarioName] = record
+                }
             }
         } catch {
-            print("⚠️ [LifecycleService] Failed to create scenario records in CloudKit: \(error)")
+            print("⚠️ [LifecycleService] Failed to register scenarios in CloudKit: \(error)")
         }
 
         scenarioStates = states
