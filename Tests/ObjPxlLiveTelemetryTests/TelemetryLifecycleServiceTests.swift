@@ -145,7 +145,10 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         // Verify client was deleted
         clients = await cloudKit.telemetryClients()
         XCTAssertEqual(clients.count, 0, "TelemetryClientRecord should be deleted when telemetry is disabled")
-        XCTAssertEqual(service.settings, .defaults)
+        // Client identifier is stable across sessions — only session flags are reset
+        XCTAssertFalse(service.settings.telemetryRequested)
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
+        XCTAssertEqual(service.settings.clientIdentifier, "delete-test")
     }
 
     func testDisableTelemetryDeletesCommands() async throws {
@@ -287,7 +290,10 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         let outcome = await service.reconcile()
 
         XCTAssertEqual(outcome, .serverDisabledLocalEnabled)
-        XCTAssertEqual(service.settings, .defaults)
+        // Client identifier is stable across sessions — only session flags are reset
+        XCTAssertFalse(service.settings.telemetryRequested)
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
+        XCTAssertEqual(service.settings.clientIdentifier, "client-off")
         let remainingClients = await cloudKit.telemetryClients().count
         XCTAssertEqual(remainingClients, 0)
         let remainingRecordCount = try await cloudKit.countRecords()

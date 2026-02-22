@@ -464,7 +464,7 @@ public final class TelemetryLifecycleService {
                 return outcome
             case (false, false):
                 if clients.isEmpty {
-                    // No client record exists - reset everything
+                    // No client record exists - reset session state (identifier preserved)
                     outcome = .missingClient
                     currentSettings = .defaults
                     clientRecord = nil
@@ -698,12 +698,16 @@ private extension TelemetryLifecycleService {
     }
 
     func resetAndClearBackup() async -> TelemetrySettings {
-        let reset = await settingsStore.reset()
+        // Preserve the stable client identifier — it is generated once per install
+        let existingIdentifier = settings.clientIdentifier
+        var resetSettings = TelemetrySettings.defaults
+        resetSettings.clientIdentifier = existingIdentifier
+        let saved = await settingsStore.save(resetSettings)
         // Clear backup from private CloudKit (fire and forget)
         Task {
             try? await syncCoordinator.clearBackup()
         }
-        return reset
+        return saved
     }
 
     func pushScenarioStatesToLogger() async {

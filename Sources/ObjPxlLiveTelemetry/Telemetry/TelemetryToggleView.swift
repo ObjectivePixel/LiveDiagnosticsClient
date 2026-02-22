@@ -18,6 +18,7 @@ public struct TelemetryToggleView: View {
     @State private var viewState: ViewState = .idle
     @State private var didBootstrap = false
     @State private var showEndSessionConfirmation = false
+    @State private var showCopyConfirmation = false
 
     public init(lifecycle: TelemetryLifecycleService) {
         self.lifecycle = lifecycle
@@ -28,19 +29,24 @@ public struct TelemetryToggleView: View {
             // 1. Client Code — always shown
             LabeledContent {
                 HStack {
-                    Text(clientCode)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    #if !os(watchOS)
-                        .textSelection(.enabled)
-                    #endif
-                    Button("Copy", systemImage: "doc.on.doc") {
-                        copyClientCode()
+                    if clientCode.isEmpty {
+                        Text("Generating…")
+                            .font(.body.monospaced())
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(clientCode)
+                            .font(.body.monospaced())
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button {
+                            copyClientCode()
+                        } label: {
+                            Image(systemName: showCopyConfirmation ? "checkmark.circle.fill" : "doc.on.doc")
+                                .foregroundStyle(showCopyConfirmation ? .green : .accentColor)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
                 }
             } label: {
                 Label("Client Code", systemImage: "person.text.rectangle")
@@ -162,12 +168,23 @@ private extension TelemetryToggleView {
     }
 
     func copyClientCode() {
+        let code = clientCode
+        guard !code.isEmpty else { return }
         #if canImport(UIKit)
-        UIPasteboard.general.string = clientCode
+        UIPasteboard.general.string = code
         #elseif canImport(AppKit)
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(clientCode, forType: .string)
+        NSPasteboard.general.setString(code, forType: .string)
         #endif
+        withAnimation {
+            showCopyConfirmation = true
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation {
+                showCopyConfirmation = false
+            }
+        }
     }
 }
 
