@@ -36,6 +36,8 @@ public struct TelemetrySchema: Sendable {
             switch self {
             case .eventTimestamp:
                 return "Date/Time"
+            case .logLevel:
+                return "Int64"
             default:
                 return "String"
             }
@@ -93,12 +95,13 @@ public struct TelemetrySchema: Sendable {
         case executedAt
         case errorMessage
         case scenarioName
+        case diagnosticLevel
 
         public var isIndexed: Bool {
             switch self {
             case .commandId, .clientId, .created, .status:
                 return true
-            case .action, .executedAt, .errorMessage, .scenarioName:
+            case .action, .executedAt, .errorMessage, .scenarioName, .diagnosticLevel:
                 return false
             }
         }
@@ -109,6 +112,8 @@ public struct TelemetrySchema: Sendable {
                 return "String"
             case .created, .executedAt:
                 return "Date/Time"
+            case .diagnosticLevel:
+                return "Int64"
             }
         }
     }
@@ -116,12 +121,12 @@ public struct TelemetrySchema: Sendable {
     public enum ScenarioField: String, CaseIterable {
         case clientId = "clientid"
         case scenarioName
-        case isEnabled
+        case diagnosticLevel
         case created
 
         public var isIndexed: Bool {
             switch self {
-            case .clientId, .scenarioName, .isEnabled, .created:
+            case .clientId, .scenarioName, .diagnosticLevel, .created:
                 return true
             }
         }
@@ -130,8 +135,8 @@ public struct TelemetrySchema: Sendable {
             switch self {
             case .clientId, .scenarioName:
                 return "String"
-            case .isEnabled:
-                return "Int64 (0/1)"
+            case .diagnosticLevel:
+                return "Int64"
             case .created:
                 return "Date/Time"
             }
@@ -139,11 +144,11 @@ public struct TelemetrySchema: Sendable {
     }
 
     public enum CommandAction: String, Sendable, CaseIterable {
+        case activate
         case enable
         case disable
         case deleteEvents = "delete_events"
-        case enableScenario
-        case disableScenario
+        case setScenarioLevel
     }
 
     public enum CommandStatus: String, Sendable, CaseIterable {

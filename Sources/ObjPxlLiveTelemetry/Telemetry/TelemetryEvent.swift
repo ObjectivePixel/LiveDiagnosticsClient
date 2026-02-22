@@ -48,7 +48,7 @@ struct TelemetryEvent: Sendable {
         record["threadId"] = threadId
         record["property1"] = property1
         record[TelemetrySchema.Field.scenario.rawValue] = scenario
-        record[TelemetrySchema.Field.logLevel.rawValue] = level.rawValue
+        record[TelemetrySchema.Field.logLevel.rawValue] = level.rawValue as CKRecordValue
 
         return record
     }

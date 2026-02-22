@@ -16,67 +16,67 @@ final class TelemetryScenarioStoreTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSaveAndLoadState() async {
-        await store.saveState(for: "NetworkRequests", isEnabled: true)
-        let loaded = await store.loadState(for: "NetworkRequests")
-        XCTAssertEqual(loaded, true)
+    func testSaveAndLoadLevel() async {
+        await store.saveLevel(for: "NetworkRequests", diagnosticLevel: TelemetryLogLevel.info.rawValue)
+        let loaded = await store.loadLevel(for: "NetworkRequests")
+        XCTAssertEqual(loaded, TelemetryLogLevel.info.rawValue)
     }
 
-    func testLoadStateReturnsNilForUnknownScenario() async {
-        let loaded = await store.loadState(for: "NeverSaved")
+    func testLoadLevelReturnsNilForUnknownScenario() async {
+        let loaded = await store.loadLevel(for: "NeverSaved")
         XCTAssertNil(loaded)
     }
 
-    func testOverwriteState() async {
-        await store.saveState(for: "DataSync", isEnabled: true)
-        await store.saveState(for: "DataSync", isEnabled: false)
-        let loaded = await store.loadState(for: "DataSync")
-        XCTAssertEqual(loaded, false)
+    func testOverwriteLevel() async {
+        await store.saveLevel(for: "DataSync", diagnosticLevel: TelemetryLogLevel.debug.rawValue)
+        await store.saveLevel(for: "DataSync", diagnosticLevel: TelemetryScenarioRecord.levelOff)
+        let loaded = await store.loadLevel(for: "DataSync")
+        XCTAssertEqual(loaded, TelemetryScenarioRecord.levelOff)
     }
 
     func testMultipleScenariosIndependent() async {
-        await store.saveState(for: "A", isEnabled: true)
-        await store.saveState(for: "B", isEnabled: false)
-        await store.saveState(for: "C", isEnabled: true)
+        await store.saveLevel(for: "A", diagnosticLevel: TelemetryLogLevel.debug.rawValue)
+        await store.saveLevel(for: "B", diagnosticLevel: TelemetryScenarioRecord.levelOff)
+        await store.saveLevel(for: "C", diagnosticLevel: TelemetryLogLevel.warning.rawValue)
 
-        let a = await store.loadState(for: "A")
-        let b = await store.loadState(for: "B")
-        let c = await store.loadState(for: "C")
-        XCTAssertEqual(a, true)
-        XCTAssertEqual(b, false)
-        XCTAssertEqual(c, true)
+        let a = await store.loadLevel(for: "A")
+        let b = await store.loadLevel(for: "B")
+        let c = await store.loadLevel(for: "C")
+        XCTAssertEqual(a, TelemetryLogLevel.debug.rawValue)
+        XCTAssertEqual(b, TelemetryScenarioRecord.levelOff)
+        XCTAssertEqual(c, TelemetryLogLevel.warning.rawValue)
     }
 
-    func testLoadAllStates() async {
-        await store.saveState(for: "X", isEnabled: true)
-        await store.saveState(for: "Y", isEnabled: false)
+    func testLoadAllLevels() async {
+        await store.saveLevel(for: "X", diagnosticLevel: TelemetryLogLevel.info.rawValue)
+        await store.saveLevel(for: "Y", diagnosticLevel: TelemetryScenarioRecord.levelOff)
 
-        let all = await store.loadAllStates()
+        let all = await store.loadAllLevels()
         XCTAssertEqual(all.count, 2)
-        XCTAssertEqual(all["X"], true)
-        XCTAssertEqual(all["Y"], false)
+        XCTAssertEqual(all["X"], TelemetryLogLevel.info.rawValue)
+        XCTAssertEqual(all["Y"], TelemetryScenarioRecord.levelOff)
     }
 
     func testRemoveState() async {
-        await store.saveState(for: "ToRemove", isEnabled: true)
-        await store.saveState(for: "ToKeep", isEnabled: false)
+        await store.saveLevel(for: "ToRemove", diagnosticLevel: TelemetryLogLevel.info.rawValue)
+        await store.saveLevel(for: "ToKeep", diagnosticLevel: TelemetryScenarioRecord.levelOff)
         await store.removeState(for: "ToRemove")
 
-        let removed = await store.loadState(for: "ToRemove")
-        let kept = await store.loadState(for: "ToKeep")
+        let removed = await store.loadLevel(for: "ToRemove")
+        let kept = await store.loadLevel(for: "ToKeep")
         XCTAssertNil(removed)
-        XCTAssertEqual(kept, false)
+        XCTAssertEqual(kept, TelemetryScenarioRecord.levelOff)
     }
 
     func testRemoveAllStates() async {
-        await store.saveState(for: "A", isEnabled: true)
-        await store.saveState(for: "B", isEnabled: false)
+        await store.saveLevel(for: "A", diagnosticLevel: TelemetryLogLevel.debug.rawValue)
+        await store.saveLevel(for: "B", diagnosticLevel: TelemetryScenarioRecord.levelOff)
         await store.removeAllStates()
 
-        let all = await store.loadAllStates()
+        let all = await store.loadAllLevels()
         XCTAssertTrue(all.isEmpty)
-        let a = await store.loadState(for: "A")
-        let b = await store.loadState(for: "B")
+        let a = await store.loadLevel(for: "A")
+        let b = await store.loadLevel(for: "B")
         XCTAssertNil(a)
         XCTAssertNil(b)
     }

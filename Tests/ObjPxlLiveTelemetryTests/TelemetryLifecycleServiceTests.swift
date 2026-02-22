@@ -707,12 +707,12 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(scenarios.count, 2)
         XCTAssertTrue(scenarios.contains { $0.scenarioName == "NetworkRequests" })
         XCTAssertTrue(scenarios.contains { $0.scenarioName == "DataSync" })
-        // Default state is disabled
-        XCTAssertTrue(scenarios.allSatisfy { !$0.isEnabled })
+        // Default state is off (levelOff = -1)
+        XCTAssertTrue(scenarios.allSatisfy { $0.diagnosticLevel == TelemetryScenarioRecord.levelOff })
 
         XCTAssertEqual(service.scenarioStates.count, 2)
-        XCTAssertEqual(service.scenarioStates["NetworkRequests"], false)
-        XCTAssertEqual(service.scenarioStates["DataSync"], false)
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], TelemetryScenarioRecord.levelOff)
+        XCTAssertEqual(service.scenarioStates["DataSync"], TelemetryScenarioRecord.levelOff)
     }
 
     func testRegisterScenariosRestoresPersistedState() async throws {
@@ -731,7 +731,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             isEnabled: true
         )
         let scenarioStore = InMemoryScenarioStore()
-        await scenarioStore.saveState(for: "NetworkRequests", isEnabled: true)
+        await scenarioStore.saveLevel(for: "NetworkRequests", diagnosticLevel: TelemetryLogLevel.info.rawValue)
 
         let service = TelemetryLifecycleService(
             settingsStore: store,
@@ -747,15 +747,15 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         _ = await service.reconcile()
         try await service.registerScenarios(["NetworkRequests", "DataSync"])
 
-        XCTAssertEqual(service.scenarioStates["NetworkRequests"], true, "Previously enabled scenario should be restored")
-        XCTAssertEqual(service.scenarioStates["DataSync"], false, "New scenario should default to disabled")
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], TelemetryLogLevel.info.rawValue, "Previously enabled scenario should be restored")
+        XCTAssertEqual(service.scenarioStates["DataSync"], TelemetryScenarioRecord.levelOff, "New scenario should default to off")
 
         let scenarios = await cloudKit.scenarioList()
         let network = try XCTUnwrap(scenarios.first { $0.scenarioName == "NetworkRequests" })
-        XCTAssertTrue(network.isEnabled, "CloudKit record should reflect persisted state")
+        XCTAssertEqual(network.diagnosticLevel, TelemetryLogLevel.info.rawValue, "CloudKit record should reflect persisted level")
     }
 
-    func testSetScenarioEnabledUpdatesState() async throws {
+    func testSetScenarioDiagnosticLevelUpdatesState() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
         _ = await store.save(
@@ -786,22 +786,22 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
 
         _ = await service.reconcile()
         try await service.registerScenarios(["NetworkRequests"])
-        try await service.setScenarioEnabled("NetworkRequests", enabled: true)
+        try await service.setScenarioDiagnosticLevel("NetworkRequests", level: TelemetryLogLevel.debug.rawValue)
 
-        XCTAssertEqual(service.scenarioStates["NetworkRequests"], true)
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], TelemetryLogLevel.debug.rawValue)
 
         // Verify persistence
-        let persisted = await scenarioStore.loadState(for: "NetworkRequests")
-        XCTAssertEqual(persisted, true)
+        let persisted = await scenarioStore.loadLevel(for: "NetworkRequests")
+        XCTAssertEqual(persisted, TelemetryLogLevel.debug.rawValue)
 
         // Verify CloudKit record updated
         let scenarios = await cloudKit.scenarioList()
         let record = try XCTUnwrap(scenarios.first { $0.scenarioName == "NetworkRequests" })
-        XCTAssertTrue(record.isEnabled)
+        XCTAssertEqual(record.diagnosticLevel, TelemetryLogLevel.debug.rawValue)
 
         // Verify logger received state push
         let loggerStates = await spyLogger.lastScenarioStates
-        XCTAssertEqual(loggerStates["NetworkRequests"], true)
+        XCTAssertEqual(loggerStates["NetworkRequests"], TelemetryLogLevel.debug.rawValue)
     }
 
     func testEndSessionDeletesScenariosFromCloudKit() async throws {
@@ -834,7 +834,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
 
         _ = await service.reconcile()
         try await service.registerScenarios(["NetworkRequests"])
-        try await service.setScenarioEnabled("NetworkRequests", enabled: true)
+        try await service.setScenarioDiagnosticLevel("NetworkRequests", level: TelemetryLogLevel.info.rawValue)
 
         try await service.endSession()
 
@@ -842,12 +842,12 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertTrue(scenarios.isEmpty, "CloudKit scenarios should be deleted after endSession")
         XCTAssertTrue(service.scenarioStates.isEmpty, "Local scenario states should be cleared")
 
-        // But persisted state should be preserved
-        let persisted = await scenarioStore.loadState(for: "NetworkRequests")
-        XCTAssertEqual(persisted, true, "Persisted scenario state should survive endSession")
+        // But persisted level should be preserved
+        let persisted = await scenarioStore.loadLevel(for: "NetworkRequests")
+        XCTAssertEqual(persisted, TelemetryLogLevel.info.rawValue, "Persisted scenario level should survive endSession")
     }
 
-    func testEnableScenarioCommandUpdatesState() async throws {
+    func testSetScenarioLevelCommandUpdatesState() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
         _ = await store.save(
@@ -864,12 +864,13 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         )
         let scenarioStore = InMemoryScenarioStore()
 
-        // Create a pending enableScenario command
+        // Create a pending setScenarioLevel command
         _ = try await cloudKit.createCommand(
             TelemetryCommandRecord(
                 clientId: "cmd-scenario-test",
-                action: .enableScenario,
-                scenarioName: "NetworkRequests"
+                action: .setScenarioLevel,
+                scenarioName: "NetworkRequests",
+                diagnosticLevel: TelemetryLogLevel.debug.rawValue
             )
         )
 
@@ -892,11 +893,12 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         // Process the pending command
         try await Task.sleep(for: .milliseconds(100))
 
-        // The enableScenario command should have been processed during reconcile
+        // The setScenarioLevel command should have been processed during reconcile
         let commands = await cloudKit.fetchAllCommands()
         let cmd = try XCTUnwrap(commands.first)
-        XCTAssertEqual(cmd.action, .enableScenario)
+        XCTAssertEqual(cmd.action, .setScenarioLevel)
         XCTAssertEqual(cmd.scenarioName, "NetworkRequests")
+        XCTAssertEqual(cmd.diagnosticLevel, TelemetryLogLevel.debug.rawValue)
     }
 
     func testScenarioCommandWithoutNameMarkedFailed() async throws {
@@ -919,8 +921,9 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         _ = try await cloudKit.createCommand(
             TelemetryCommandRecord(
                 clientId: "cmd-no-name",
-                action: .enableScenario,
-                scenarioName: nil
+                action: .setScenarioLevel,
+                scenarioName: nil,
+                diagnosticLevel: TelemetryLogLevel.debug.rawValue
             )
         )
 
@@ -1012,7 +1015,7 @@ private actor SpyTelemetryLogger: TelemetryLogging {
     private(set) var didShutdown = false
     private(set) var isEnabled = false
     private(set) var isActivated = false
-    private(set) var lastScenarioStates: [String: Bool] = [:]
+    private(set) var lastScenarioStates: [String: Int] = [:]
     nonisolated let currentSessionId: String = "test-session-id"
 
     nonisolated func logEvent(name: String, property1: String?) {
@@ -1023,7 +1026,7 @@ private actor SpyTelemetryLogger: TelemetryLogging {
         Task { await register(name: name) }
     }
 
-    func updateScenarioStates(_ states: [String: Bool]) {
+    func updateScenarioStates(_ states: [String: Int]) {
         lastScenarioStates = states
     }
 
@@ -1182,6 +1185,7 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
             clientId: command.clientId,
             action: command.action,
             scenarioName: command.scenarioName,
+            diagnosticLevel: command.diagnosticLevel,
             created: command.created,
             status: command.status,
             executedAt: command.executedAt,
@@ -1268,7 +1272,7 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
                 recordID: CKRecord.ID(recordName: UUID().uuidString),
                 clientId: scenario.clientId,
                 scenarioName: scenario.scenarioName,
-                isEnabled: scenario.isEnabled,
+                diagnosticLevel: scenario.diagnosticLevel,
                 created: scenario.created
             )
         }
@@ -1340,26 +1344,26 @@ private actor MockBackupClient: CloudKitSettingsBackupClientProtocol {
 }
 
 private actor InMemoryScenarioStore: TelemetryScenarioStoring {
-    private var states: [String: Bool] = [:]
+    private var levels: [String: Int] = [:]
 
-    func loadState(for scenarioName: String) async -> Bool? {
-        states[scenarioName]
+    func loadLevel(for scenarioName: String) async -> Int? {
+        levels[scenarioName]
     }
 
-    func loadAllStates() async -> [String: Bool] {
-        states
+    func loadAllLevels() async -> [String: Int] {
+        levels
     }
 
-    func saveState(for scenarioName: String, isEnabled: Bool) async {
-        states[scenarioName] = isEnabled
+    func saveLevel(for scenarioName: String, diagnosticLevel: Int) async {
+        levels[scenarioName] = diagnosticLevel
     }
 
     func removeState(for scenarioName: String) async {
-        states.removeValue(forKey: scenarioName)
+        levels.removeValue(forKey: scenarioName)
     }
 
     func removeAllStates() async {
-        states.removeAll()
+        levels.removeAll()
     }
 }
 

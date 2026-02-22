@@ -19,23 +19,33 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
         }
     }
 
+    public static let levelOff: Int = -1
+
     public let recordID: CKRecord.ID?
     public let clientId: String
     public let scenarioName: String
-    public var isEnabled: Bool
+    public var diagnosticLevel: Int
     public let created: Date
+
+    /// Convenience: is this scenario actively capturing?
+    public var isActive: Bool { diagnosticLevel >= 0 }
+
+    /// Convenience: the resolved TelemetryLogLevel, or nil if off.
+    public var resolvedLevel: TelemetryLogLevel? {
+        TelemetryLogLevel(rawValue: diagnosticLevel)
+    }
 
     public init(
         recordID: CKRecord.ID? = nil,
         clientId: String,
         scenarioName: String,
-        isEnabled: Bool,
+        diagnosticLevel: Int = Self.levelOff,
         created: Date = .now
     ) {
         self.recordID = recordID
         self.clientId = clientId
         self.scenarioName = scenarioName
-        self.isEnabled = isEnabled
+        self.diagnosticLevel = diagnosticLevel
         self.created = created
     }
 
@@ -52,13 +62,15 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
             throw Error.missingField(TelemetrySchema.ScenarioField.scenarioName.rawValue)
         }
 
-        let isEnabled: Bool
-        if let storedBool = record[TelemetrySchema.ScenarioField.isEnabled.rawValue] as? NSNumber {
-            isEnabled = storedBool.boolValue
-        } else if let stored = record[TelemetrySchema.ScenarioField.isEnabled.rawValue] as? Bool {
-            isEnabled = stored
+        // Read diagnosticLevel, with backward-compatible fallback from isEnabled
+        let diagnosticLevel: Int
+        if let level = record[TelemetrySchema.ScenarioField.diagnosticLevel.rawValue] as? NSNumber {
+            diagnosticLevel = level.intValue
+        } else if let legacyEnabled = record["isEnabled"] as? NSNumber {
+            // Migration: isEnabled true -> info (1), false -> off (-1)
+            diagnosticLevel = legacyEnabled.boolValue ? TelemetryLogLevel.info.rawValue : Self.levelOff
         } else {
-            throw Error.missingField(TelemetrySchema.ScenarioField.isEnabled.rawValue)
+            throw Error.missingField(TelemetrySchema.ScenarioField.diagnosticLevel.rawValue)
         }
 
         guard let created = record[TelemetrySchema.ScenarioField.created.rawValue] as? Date else {
@@ -68,7 +80,7 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
         self.recordID = record.recordID
         self.clientId = clientId
         self.scenarioName = scenarioName
-        self.isEnabled = isEnabled
+        self.diagnosticLevel = diagnosticLevel
         self.created = created
     }
 
@@ -82,7 +94,7 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
 
         record[TelemetrySchema.ScenarioField.clientId.rawValue] = clientId as CKRecordValue
         record[TelemetrySchema.ScenarioField.scenarioName.rawValue] = scenarioName as CKRecordValue
-        record[TelemetrySchema.ScenarioField.isEnabled.rawValue] = isEnabled as CKRecordValue
+        record[TelemetrySchema.ScenarioField.diagnosticLevel.rawValue] = diagnosticLevel as CKRecordValue
         record[TelemetrySchema.ScenarioField.created.rawValue] = created as CKRecordValue
 
         return record
@@ -95,7 +107,7 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
 
         record[TelemetrySchema.ScenarioField.clientId.rawValue] = clientId as CKRecordValue
         record[TelemetrySchema.ScenarioField.scenarioName.rawValue] = scenarioName as CKRecordValue
-        record[TelemetrySchema.ScenarioField.isEnabled.rawValue] = isEnabled as CKRecordValue
+        record[TelemetrySchema.ScenarioField.diagnosticLevel.rawValue] = diagnosticLevel as CKRecordValue
         record[TelemetrySchema.ScenarioField.created.rawValue] = created as CKRecordValue
 
         return record

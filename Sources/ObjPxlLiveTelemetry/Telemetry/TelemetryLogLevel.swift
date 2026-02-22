@@ -1,17 +1,17 @@
 import Foundation
 
-public enum TelemetryLogLevel: String, Sendable, CaseIterable, Comparable {
-    case info
-    case diagnostic
+public enum TelemetryLogLevel: Int, Sendable, CaseIterable, Comparable, CustomStringConvertible {
+    case debug = 0
+    case info = 1
+    case warning = 2
+    case error = 3
 
-    public static func < (lhs: TelemetryLogLevel, rhs: TelemetryLogLevel) -> Bool {
-        lhs.sortOrder < rhs.sortOrder
-    }
-
-    private var sortOrder: Int {
+    public var description: String {
         switch self {
-        case .info: return 0
-        case .diagnostic: return 1
+        case .debug: "Debug"
+        case .info: "Info"
+        case .warning: "Warning"
+        case .error: "Error"
         }
     }
 }

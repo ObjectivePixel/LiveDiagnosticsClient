@@ -76,7 +76,7 @@ private struct TestEventSection: View {
                 if selectedScenario != nil {
                     Picker("Log Level", selection: $selectedLogLevel) {
                         ForEach(TelemetryLogLevel.allCases, id: \.rawValue) { level in
-                            Text(level.rawValue).tag(level)
+                            Text(level.description).tag(level)
                         }
                     }
                 }
@@ -92,11 +92,11 @@ private struct TestEventSection: View {
                             level: selectedLogLevel,
                             property1: "timestamp=\(timestamp.ISO8601Format())"
                         )
-                        let enabled = telemetryLifecycle.scenarioStates[scenario.rawValue] ?? false
-                        if enabled {
-                            lastEvent = "Logged test_button_tap [\(scenario.rawValue)/\(selectedLogLevel.rawValue)] at \(timestamp.formatted(date: .omitted, time: .standard))"
+                        let scenarioLevel = telemetryLifecycle.scenarioStates[scenario.rawValue] ?? TelemetryScenarioRecord.levelOff
+                        if scenarioLevel >= 0, selectedLogLevel.rawValue >= scenarioLevel {
+                            lastEvent = "Logged test_button_tap [\(scenario.rawValue)/\(selectedLogLevel.description)] at \(timestamp.formatted(date: .omitted, time: .standard))"
                         } else {
-                            lastEvent = "Event discarded — scenario \(scenario.rawValue) is disabled"
+                            lastEvent = "Event discarded — scenario \(scenario.rawValue) level=\(scenarioLevel)"
                         }
                     } else {
                         telemetryLogger.logEvent(
@@ -144,31 +144,23 @@ private struct ScenarioSection: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(ExampleScenario.allCases, id: \.rawValue) { scenario in
-                    let isEnabled = lifecycle.scenarioStates[scenario.rawValue] ?? false
+                    let level = lifecycle.scenarioStates[scenario.rawValue] ?? TelemetryScenarioRecord.levelOff
+                    let levelName = TelemetryLogLevel(rawValue: level)?.description ?? "Off"
                     HStack {
                         VStack(alignment: .leading) {
                             Text(scenario.rawValue)
                                 .font(.subheadline.weight(.medium))
-                            Text(isEnabled ? "Enabled" : "Disabled")
+                            Text(level >= 0 ? levelName : "Off")
                                 .font(.caption)
-                                .foregroundStyle(isEnabled ? .green : .secondary)
+                                .foregroundStyle(level >= 0 ? .green : .secondary)
                         }
                         Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { isEnabled },
-                            set: { newValue in
-                                Task {
-                                    try? await lifecycle.setScenarioEnabled(scenario.rawValue, enabled: newValue)
-                                }
-                            }
-                        ))
-                        .labelsHidden()
 
                         Button("Log", systemImage: "text.badge.plus") {
                             telemetryLogger.logEvent(
                                 name: "scenario_test_\(scenario.rawValue)",
                                 scenario: scenario.rawValue,
-                                level: .diagnostic,
+                                level: .debug,
                                 property1: "manual_test"
                             )
                         }
@@ -178,15 +170,7 @@ private struct ScenarioSection: View {
                 }
             }
 
-            Button("End Session") {
-                Task {
-                    try? await lifecycle.endSession()
-                }
-            }
-            .buttonStyle(.bordered)
-            .foregroundStyle(.red)
-
-            Text("Toggle scenarios locally or wait for the viewer to send commands. End Session cleans up CloudKit records.")
+            Text("Scenario levels are set by the viewer via commands.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }

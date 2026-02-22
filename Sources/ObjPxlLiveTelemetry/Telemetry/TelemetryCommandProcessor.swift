@@ -2,36 +2,36 @@ import CloudKit
 import Foundation
 
 public actor TelemetryCommandProcessor {
+    public typealias ActivateHandler = @Sendable () async throws -> Void
     public typealias EnableHandler = @Sendable () async throws -> Void
     public typealias DisableHandler = @Sendable () async throws -> Void
     public typealias DeleteEventsHandler = @Sendable () async throws -> Void
-    public typealias EnableScenarioHandler = @Sendable (String) async throws -> Void
-    public typealias DisableScenarioHandler = @Sendable (String) async throws -> Void
+    public typealias SetScenarioLevelHandler = @Sendable (_ scenarioName: String, _ level: Int) async throws -> Void
 
     private let cloudKitClient: CloudKitClientProtocol
     private let clientId: String
+    private let onActivate: ActivateHandler
     private let onEnable: EnableHandler
     private let onDisable: DisableHandler
     private let onDeleteEvents: DeleteEventsHandler
-    private let onEnableScenario: EnableScenarioHandler
-    private let onDisableScenario: DisableScenarioHandler
+    private let onSetScenarioLevel: SetScenarioLevelHandler
 
     public init(
         cloudKitClient: CloudKitClientProtocol,
         clientId: String,
+        onActivate: @escaping ActivateHandler,
         onEnable: @escaping EnableHandler,
         onDisable: @escaping DisableHandler,
         onDeleteEvents: @escaping DeleteEventsHandler,
-        onEnableScenario: @escaping EnableScenarioHandler,
-        onDisableScenario: @escaping DisableScenarioHandler
+        onSetScenarioLevel: @escaping SetScenarioLevelHandler
     ) {
         self.cloudKitClient = cloudKitClient
         self.clientId = clientId
+        self.onActivate = onActivate
         self.onEnable = onEnable
         self.onDisable = onDisable
         self.onDeleteEvents = onDeleteEvents
-        self.onEnableScenario = onEnableScenario
-        self.onDisableScenario = onDisableScenario
+        self.onSetScenarioLevel = onSetScenarioLevel
     }
 
     public func processCommands() async {
@@ -117,6 +117,9 @@ public actor TelemetryCommandProcessor {
         print("🔄 [CommandProcessor] Executing command \(command.commandId): \(command.action.rawValue)")
         do {
             switch command.action {
+            case .activate:
+                print("🔄 [CommandProcessor] Calling onActivate handler...")
+                try await onActivate()
             case .enable:
                 print("🔄 [CommandProcessor] Calling onEnable handler...")
                 try await onEnable()
@@ -126,32 +129,20 @@ public actor TelemetryCommandProcessor {
             case .deleteEvents:
                 print("🔄 [CommandProcessor] Calling onDeleteEvents handler...")
                 try await onDeleteEvents()
-            case .enableScenario:
+            case .setScenarioLevel:
                 guard let scenarioName = command.scenarioName else {
-                    print("❌ [CommandProcessor] enableScenario command missing scenarioName")
+                    print("❌ [CommandProcessor] setScenarioLevel command missing scenarioName")
                     _ = try await cloudKitClient.updateCommandStatus(
                         recordID: recordID,
                         status: .failed,
                         executedAt: .now,
-                        errorMessage: "Missing scenarioName for enableScenario command"
+                        errorMessage: "Missing scenarioName for setScenarioLevel command"
                     )
                     return
                 }
-                print("🔄 [CommandProcessor] Calling onEnableScenario handler for '\(scenarioName)'...")
-                try await onEnableScenario(scenarioName)
-            case .disableScenario:
-                guard let scenarioName = command.scenarioName else {
-                    print("❌ [CommandProcessor] disableScenario command missing scenarioName")
-                    _ = try await cloudKitClient.updateCommandStatus(
-                        recordID: recordID,
-                        status: .failed,
-                        executedAt: .now,
-                        errorMessage: "Missing scenarioName for disableScenario command"
-                    )
-                    return
-                }
-                print("🔄 [CommandProcessor] Calling onDisableScenario handler for '\(scenarioName)'...")
-                try await onDisableScenario(scenarioName)
+                let level = command.diagnosticLevel ?? TelemetryScenarioRecord.levelOff
+                print("🔄 [CommandProcessor] Calling onSetScenarioLevel handler for '\(scenarioName)' level=\(level)...")
+                try await onSetScenarioLevel(scenarioName, level)
             }
 
             print("✅ [CommandProcessor] Command \(command.commandId) executed successfully, updating status...")

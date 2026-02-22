@@ -17,7 +17,7 @@ public protocol TelemetryLogging: Actor, Sendable {
         property1: String?
     )
 
-    func updateScenarioStates(_ states: [String: Bool])
+    func updateScenarioStates(_ states: [String: Int])
 
     func activate(enabled: Bool) async
     func setEnabled(_ enabled: Bool) async
@@ -86,7 +86,7 @@ public actor TelemetryLogger: TelemetryLogging {
     private nonisolated let continuationLock = OSAllocatedUnfairLock<AsyncStream<TelemetryEvent>.Continuation?>(initialState: nil)
     private nonisolated let shutdownLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     private nonisolated let stateLock = OSAllocatedUnfairLock<LoggerState>(initialState: .initializing)
-    private nonisolated let scenarioStatesLock = OSAllocatedUnfairLock<[String: Bool]>(initialState: [:])
+    private nonisolated let scenarioStatesLock = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
     public nonisolated let currentSessionId: String
     private let deferredStream: AsyncStream<TelemetryEvent>
 
@@ -107,7 +107,7 @@ public actor TelemetryLogger: TelemetryLogging {
         self.deferredStream = stream
     }
 
-    public func updateScenarioStates(_ states: [String: Bool]) {
+    public func updateScenarioStates(_ states: [String: Int]) {
         scenarioStatesLock.withLock { $0 = states }
     }
 
@@ -157,9 +157,9 @@ public actor TelemetryLogger: TelemetryLogging {
         level: TelemetryLogLevel,
         property1: String?
     ) {
-        // Fast nonisolated check — if scenario is disabled, discard immediately
-        let isEnabled = scenarioStatesLock.withLock { $0[scenario] ?? false }
-        guard isEnabled else { return }
+        // Fast nonisolated check — if scenario level < event level, discard
+        let scenarioLevel = scenarioStatesLock.withLock { $0[scenario] ?? TelemetryScenarioRecord.levelOff }
+        guard scenarioLevel >= 0, level.rawValue >= scenarioLevel else { return }
 
         let isShutdown = shutdownLock.withLock { $0 }
         guard !isShutdown else { return }
@@ -323,7 +323,7 @@ public actor NoopTelemetryLogger: TelemetryLogging {
 
     public nonisolated func logEvent(name: String, property1: String?) {}
     public nonisolated func logEvent(name: String, scenario: String, level: TelemetryLogLevel, property1: String?) {}
-    public func updateScenarioStates(_ states: [String: Bool]) {}
+    public func updateScenarioStates(_ states: [String: Int]) {}
     public func activate(enabled: Bool) async {}
     public func setEnabled(_ enabled: Bool) async {}
     public func flush() async {}

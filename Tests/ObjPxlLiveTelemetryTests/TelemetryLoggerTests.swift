@@ -143,8 +143,8 @@ final class TelemetryLoggerTests: XCTestCase {
         )
 
         await logger.activate(enabled: true)
-        await logger.updateScenarioStates(["MyScenario": true])
-        logger.logEvent(name: "should_send", scenario: "MyScenario", level: .diagnostic, property1: "test")
+        await logger.updateScenarioStates(["MyScenario": TelemetryLogLevel.debug.rawValue])
+        logger.logEvent(name: "should_send", scenario: "MyScenario", level: .info, property1: "test")
 
         try await Task.sleep(for: .milliseconds(50))
         await logger.flush()
@@ -156,7 +156,7 @@ final class TelemetryLoggerTests: XCTestCase {
         let savedRecords = await spy.savedRecords
         let record = try XCTUnwrap(savedRecords.first)
         XCTAssertEqual(record[TelemetrySchema.Field.scenario.rawValue] as? String, "MyScenario")
-        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? String, "diagnostic")
+        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? Int, TelemetryLogLevel.info.rawValue)
 
         await logger.shutdown()
     }
@@ -177,7 +177,7 @@ final class TelemetryLoggerTests: XCTestCase {
         let savedRecords = await spy.savedRecords
         let record = try XCTUnwrap(savedRecords.first)
         XCTAssertNil(record[TelemetrySchema.Field.scenario.rawValue] as? String)
-        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? String, "info")
+        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? Int, TelemetryLogLevel.info.rawValue)
 
         await logger.shutdown()
     }
@@ -198,16 +198,16 @@ final class TelemetryLoggerTests: XCTestCase {
         let countBefore = await spy.savedRecordCount
         XCTAssertEqual(countBefore, 0)
 
-        // Enable the scenario
-        await logger.updateScenarioStates(["TestScenario": true])
+        // Enable the scenario at debug level
+        await logger.updateScenarioStates(["TestScenario": TelemetryLogLevel.debug.rawValue])
         logger.logEvent(name: "after_enable", scenario: "TestScenario", level: .info, property1: nil)
         try await Task.sleep(for: .milliseconds(50))
         await logger.flush()
         let countAfter = await spy.savedRecordCount
         XCTAssertEqual(countAfter, 1)
 
-        // Disable the scenario again
-        await logger.updateScenarioStates(["TestScenario": false])
+        // Disable the scenario (set to off)
+        await logger.updateScenarioStates(["TestScenario": TelemetryScenarioRecord.levelOff])
         logger.logEvent(name: "after_disable", scenario: "TestScenario", level: .info, property1: nil)
         try await Task.sleep(for: .milliseconds(50))
         await logger.flush()

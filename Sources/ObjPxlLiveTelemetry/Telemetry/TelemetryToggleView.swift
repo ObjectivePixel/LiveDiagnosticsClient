@@ -1,4 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// A view for controlling telemetry settings, designed to be embedded in a Form or List.
 ///
@@ -11,9 +16,8 @@ import SwiftUI
 public struct TelemetryToggleView: View {
     private let lifecycle: TelemetryLifecycleService
     @State private var viewState: ViewState = .idle
-    @State private var isTelemetryRequested = false
     @State private var didBootstrap = false
-    @State private var showClearConfirmation = false
+    @State private var showEndSessionConfirmation = false
 
     public init(lifecycle: TelemetryLifecycleService) {
         self.lifecycle = lifecycle
@@ -21,36 +25,36 @@ public struct TelemetryToggleView: View {
 
     public var body: some View {
         Section {
-            Toggle(isOn: $isTelemetryRequested) {
-                Label("Share Diagnostics", systemImage: "antenna.radiowaves.left.and.right")
+            // 1. Client Code — always shown
+            LabeledContent {
+                HStack {
+                    Text(clientCode)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    #if !os(watchOS)
+                        .textSelection(.enabled)
+                    #endif
+                    Button("Copy", systemImage: "doc.on.doc") {
+                        copyClientCode()
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                }
+            } label: {
+                Label("Client Code", systemImage: "person.text.rectangle")
             }
-            .onChange(of: isTelemetryRequested) { oldValue, newValue in
-                guard oldValue != newValue, didBootstrap else { return }
-                Task { await handleToggleChange(newValue) }
-            }
-            .disabled(viewState.isBusy)
 
+            // 2. Status row — always shown
             TelemetryStatusRow(
                 viewState: viewState,
                 status: lifecycle.status,
                 message: lifecycle.statusMessage
             )
 
-            if let identifier = lifecycle.settings.clientIdentifier,
-               lifecycle.settings.telemetryRequested {
-                LabeledContent {
-                    Text(identifier)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    #if !os(watchOS)
-                        .textSelection(.enabled)
-                    #endif
-                } label: {
-                    Label("Client ID", systemImage: "person.text.rectangle")
-                }
-
+            // 3. Session ID — shown when active
+            if isActive {
                 let sessionId = lifecycle.telemetryLogger.currentSessionId
                 if !sessionId.isEmpty {
                     LabeledContent {
@@ -67,48 +71,60 @@ public struct TelemetryToggleView: View {
                     }
                 }
             }
-            Button {
-                Task { await reconcile() }
-            } label: {
-                HStack {
-                    Label("Sync Status", systemImage: "arrow.triangle.2.circlepath")
-                    Spacer()
-                    if viewState == .syncing {
-                        ProgressView()
+
+            // 4. Request Diagnostics button — shown when NOT active
+            if !isActive {
+                Button {
+                    Task { await requestDiagnostics() }
+                } label: {
+                    HStack {
+                        Label("Request Diagnostics", systemImage: "antenna.radiowaves.left.and.right")
+                        Spacer()
+                        if viewState == .syncing {
+                            ProgressView()
+                        }
                     }
                 }
+                .disabled(viewState.isBusy)
             }
-            .disabled(viewState.isBusy)
 
-            Button(role: .destructive) {
-                showClearConfirmation = true
-            } label: {
-                Label("Clear Telemetry Data", systemImage: "trash")
-            }
-            .disabled(viewState.isBusy)
-            .confirmationDialog(
-                "Clear Telemetry Data?",
-                isPresented: $showClearConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Clear Data", role: .destructive) {
-                    Task { await disableTelemetry() }
+            // 5. End Session button — shown when active
+            if isActive {
+                Button(role: .destructive) {
+                    showEndSessionConfirmation = true
+                } label: {
+                    Label("End Session", systemImage: "stop.fill")
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will disable telemetry and remove your client registration. This action cannot be undone.")
+                .disabled(viewState.isBusy)
+                .confirmationDialog(
+                    "End Diagnostic Session?",
+                    isPresented: $showEndSessionConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("End Session", role: .destructive) {
+                        Task { await endSession() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This will disable telemetry and remove your client registration. This action cannot be undone.")
+                }
             }
         } header: {
             Text("Telemetry")
         } footer: {
-            Text("Share diagnostic data to help improve the app. Data is transmitted securely via CloudKit.")
+            Text("Share your client code with the diagnostics administrator to enable telemetry.")
         }
         .task {
             await bootstrap()
         }
-        .onChange(of: lifecycle.settings.telemetryRequested) { _, newValue in
-            isTelemetryRequested = newValue
-        }
+    }
+
+    private var clientCode: String {
+        lifecycle.settings.clientIdentifier ?? ""
+    }
+
+    private var isActive: Bool {
+        lifecycle.status == .enabled
     }
 }
 
@@ -116,28 +132,22 @@ private extension TelemetryToggleView {
     func bootstrap() async {
         viewState = .loading
         _ = await lifecycle.startup()
-        isTelemetryRequested = lifecycle.settings.telemetryRequested
+
+        if lifecycle.settings.clientIdentifier == nil {
+            await lifecycle.generateAndPersistClientIdentifier()
+        }
+
         didBootstrap = true
         settleViewState()
     }
 
-    func handleToggleChange(_ isEnabled: Bool) async {
+    func requestDiagnostics() async {
         viewState = .syncing
-        if isEnabled {
-            _ = await lifecycle.enableTelemetry()
-        } else {
-            _ = await lifecycle.disableTelemetry()
-        }
+        await lifecycle.requestDiagnostics()
         settleViewState()
     }
 
-    func reconcile() async {
-        viewState = .syncing
-        _ = await lifecycle.reconcile()
-        settleViewState()
-    }
-
-    func disableTelemetry() async {
+    func endSession() async {
         viewState = .syncing
         _ = await lifecycle.disableTelemetry()
         settleViewState()
@@ -149,6 +159,15 @@ private extension TelemetryToggleView {
         } else {
             viewState = .idle
         }
+    }
+
+    func copyClientCode() {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = clientCode
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(clientCode, forType: .string)
+        #endif
     }
 }
 
@@ -222,6 +241,8 @@ private struct TelemetryStatusRow: View {
             return "minus.circle.fill"
         case .pendingApproval:
             return "clock.fill"
+        case .noRegistration:
+            return "info.circle"
         case .error:
             return "exclamationmark.triangle.fill"
         default:
@@ -237,6 +258,8 @@ private struct TelemetryStatusRow: View {
             return .secondary
         case .pendingApproval:
             return .orange
+        case .noRegistration:
+            return .secondary
         case .error:
             return .red
         default:
@@ -258,6 +281,8 @@ private struct TelemetryStatusRow: View {
             return "Disabled"
         case .pendingApproval:
             return "Pending"
+        case .noRegistration:
+            return "No Registration Found"
         case .error:
             return "Error"
         }
