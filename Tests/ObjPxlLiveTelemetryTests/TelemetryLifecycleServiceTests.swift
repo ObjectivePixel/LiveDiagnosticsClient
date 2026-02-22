@@ -853,6 +853,59 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(persisted, TelemetryLogLevel.info.rawValue, "Persisted scenario level should survive endSession")
     }
 
+    func testDisableTelemetryCleansUpAllScenarioState() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "scenario-cleanup"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "scenario-cleanup",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-cleanup"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        try await service.setScenarioDiagnosticLevel("NetworkRequests", level: TelemetryLogLevel.info.rawValue)
+        try await service.setScenarioDiagnosticLevel("DataSync", level: TelemetryLogLevel.debug.rawValue)
+
+        // Verify scenarios exist before disable
+        let preScenarios = await cloudKit.scenarioList()
+        XCTAssertEqual(preScenarios.count, 2)
+        let prePersisted = await scenarioStore.loadAllLevels()
+        XCTAssertEqual(prePersisted.count, 2)
+
+        await service.disableTelemetry()
+
+        // CloudKit scenarios should be deleted
+        let postScenarios = await cloudKit.scenarioList()
+        XCTAssertTrue(postScenarios.isEmpty, "CloudKit scenarios should be deleted on disable")
+
+        // In-memory state should be cleared
+        XCTAssertTrue(service.scenarioStates.isEmpty, "In-memory scenario states should be cleared")
+
+        // Local persisted scenario levels should also be cleared
+        let postPersisted = await scenarioStore.loadAllLevels()
+        XCTAssertTrue(postPersisted.isEmpty, "Persisted scenario levels should be cleared on disable")
+    }
+
     func testSetScenarioLevelCommandUpdatesState() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -1003,6 +1056,71 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
 
         let loggerShutdown = await spyLogger.didShutdown
         XCTAssertTrue(loggerShutdown, "Logger should be shut down after disableTelemetry")
+    }
+
+    func testScenariosReregisteredAfterDisableAndReactivate() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "reregister-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "reregister-test",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "reregister-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+
+        // Register scenarios
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let firstCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(firstCount, 2, "Scenarios should be registered initially")
+
+        // Disable telemetry — should delete all scenarios
+        await service.disableTelemetry()
+        let afterDisableCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterDisableCount, 0, "Scenarios should be deleted on disable")
+
+        // Simulate re-activation via requestDiagnostics flow:
+        // Re-create the client record (simulating admin enabling)
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "reregister-test",
+            created: .now,
+            isEnabled: true
+        )
+        let command = TelemetryCommandRecord(
+            clientId: "reregister-test",
+            action: .activate
+        )
+        let savedCommand = try await cloudKit.createCommand(command)
+        await service.requestDiagnostics()
+
+        // Give async processing time
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Scenarios should be re-registered
+        let afterReactivateCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterReactivateCount, 2, "Scenarios should be re-registered after re-activation")
+
+        let scenarioNames = await cloudKit.scenarioList().map(\.scenarioName).sorted()
+        XCTAssertEqual(scenarioNames, ["DataSync", "NetworkRequests"])
     }
 
     func testGracefulDegradationOnSubscriptionFailure() async throws {
@@ -1357,10 +1475,16 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
         return scenario
     }
 
-    func deleteScenarios(forClient clientId: String) async throws -> Int {
-        let matching = scenarios.filter { $0.clientId == clientId }
-        scenarios.removeAll { $0.clientId == clientId }
-        return matching.count
+    func deleteScenarios(forClient clientId: String?) async throws -> Int {
+        if let clientId {
+            let matching = scenarios.filter { $0.clientId == clientId }
+            scenarios.removeAll { $0.clientId == clientId }
+            return matching.count
+        } else {
+            let count = scenarios.count
+            scenarios.removeAll()
+            return count
+        }
     }
 
     func createScenarioSubscription() async throws -> CKSubscription.ID {

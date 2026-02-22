@@ -88,7 +88,7 @@ public actor TelemetryLogger: TelemetryLogging {
     private nonisolated let stateLock = OSAllocatedUnfairLock<LoggerState>(initialState: .initializing)
     private nonisolated let scenarioStatesLock = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
     public nonisolated let currentSessionId: String
-    private let deferredStream: AsyncStream<TelemetryEvent>
+    private var deferredStream: AsyncStream<TelemetryEvent>
 
     public init(
         configuration: Configuration = .default,
@@ -202,9 +202,25 @@ public actor TelemetryLogger: TelemetryLogging {
     }
 
     public func activate(enabled: Bool) async {
+        // Reset shutdown state so logEvent calls are no longer rejected
+        shutdownLock.withLock { $0 = false }
+
+        // Cancel any leftover tasks from a previous lifecycle
+        flushTask?.cancel()
+        consumeTask?.cancel()
+
+        // Create a fresh stream + continuation (the old ones may have been finished by shutdown)
+        var newContinuation: AsyncStream<TelemetryEvent>.Continuation!
+        let stream = AsyncStream<TelemetryEvent> { cont in
+            newContinuation = cont
+        }
+        let capturedContinuation = newContinuation
+        continuationLock.withLock { $0 = capturedContinuation }
+        deferredStream = stream
+
         if enabled {
             // Start consuming and validating only when telemetry is actually enabled
-            await bootstrap(stream: deferredStream)
+            await bootstrap(stream: stream)
 
             // Flush queued events to pending
             for event in queuedEvents {

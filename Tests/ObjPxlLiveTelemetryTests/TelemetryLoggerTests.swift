@@ -216,6 +216,44 @@ final class TelemetryLoggerTests: XCTestCase {
 
         await logger.shutdown()
     }
+    // MARK: - Re-activation after shutdown
+
+    func testLoggerAcceptsEventsAfterShutdownAndReactivate() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        // First lifecycle: activate, log, shutdown
+        await logger.activate(enabled: true)
+        logger.logEvent(name: "first_lifecycle")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countAfterFirst = await spy.savedRecordCount
+        XCTAssertEqual(countAfterFirst, 1, "Event should be saved in first lifecycle")
+
+        await logger.shutdown()
+
+        // Events should be rejected after shutdown
+        logger.logEvent(name: "after_shutdown")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+        let countAfterShutdown = await spy.savedRecordCount
+        XCTAssertEqual(countAfterShutdown, 1, "Events should be rejected after shutdown")
+
+        // Second lifecycle: re-activate
+        await logger.activate(enabled: true)
+        logger.logEvent(name: "second_lifecycle")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countAfterReactivate = await spy.savedRecordCount
+        XCTAssertEqual(countAfterReactivate, 2, "Logger should accept events after re-activation")
+
+        await logger.shutdown()
+    }
 }
 
 // MARK: - Spy CloudKit Client
@@ -274,6 +312,6 @@ private actor SpyCloudKitClient: CloudKitClientProtocol {
     func createScenarios(_ scenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord] { scenarios }
     func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord] { [] }
     func updateScenario(_ scenario: TelemetryScenarioRecord) async throws -> TelemetryScenarioRecord { scenario }
-    func deleteScenarios(forClient clientId: String) async throws -> Int { 0 }
+    func deleteScenarios(forClient clientId: String?) async throws -> Int { 0 }
     func createScenarioSubscription() async throws -> CKSubscription.ID { "test" }
 }
