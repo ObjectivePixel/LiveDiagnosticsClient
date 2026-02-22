@@ -268,25 +268,26 @@ public final class TelemetryLifecycleService {
         //    does not prevent cleanup of the others.
         var errors: [String] = []
 
-        if let identifier {
-            do {
-                let remoteClients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
-                for client in remoteClients {
-                    if let recordID = client.recordID {
-                        try await cloudKitClient.deleteTelemetryClient(recordID: recordID)
-                    }
+        // Delete ALL client records, including orphans from previous failed sessions
+        do {
+            let remoteClients = try await cloudKitClient.fetchTelemetryClients(clientId: nil, isEnabled: nil)
+            for client in remoteClients {
+                if let recordID = client.recordID {
+                    try await cloudKitClient.deleteTelemetryClient(recordID: recordID)
                 }
-            } catch {
-                errors.append("clients: \(error.localizedDescription)")
             }
+        } catch {
+            errors.append("clients: \(error.localizedDescription)")
+        }
 
-            do {
-                // Pass nil to delete ALL scenarios, including orphans from old client identifiers
-                _ = try await cloudKitClient.deleteScenarios(forClient: nil)
-            } catch {
-                errors.append("scenarios: \(error.localizedDescription)")
-            }
+        do {
+            // Pass nil to delete ALL scenarios, including orphans from old client identifiers
+            _ = try await cloudKitClient.deleteScenarios(forClient: nil)
+        } catch {
+            errors.append("scenarios: \(error.localizedDescription)")
+        }
 
+        if let identifier {
             do {
                 _ = try await cloudKitClient.deleteAllCommands(for: identifier)
             } catch {

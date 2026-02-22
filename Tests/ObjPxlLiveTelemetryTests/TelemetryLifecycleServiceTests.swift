@@ -853,6 +853,49 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(persisted, TelemetryLogLevel.info.rawValue, "Persisted scenario level should survive endSession")
     }
 
+    func testDisableTelemetryDeletesOrphanClientRecords() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "current-client"
+            )
+        )
+
+        // Current client record
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "current-client",
+            created: .now,
+            isEnabled: true
+        )
+        // Orphan from a previous failed session with a different client code
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "old-orphan-client",
+            created: .now,
+            isEnabled: false
+        )
+
+        let allClientsBefore = await cloudKit.telemetryClients()
+        XCTAssertEqual(allClientsBefore.count, 2)
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "current-client"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager()
+        )
+
+        await service.disableTelemetry()
+
+        let allClientsAfter = await cloudKit.telemetryClients()
+        XCTAssertEqual(allClientsAfter.count, 0, "Both current and orphan client records should be deleted")
+    }
+
     func testDisableTelemetryCleansUpAllScenarioState() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -1005,6 +1048,8 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertNotNil(cmd.errorMessage)
     }
 
+    /// Uses the REAL TelemetryLogger (not the spy) so regressions in the
+    /// actual logger code are caught by this test.
     func testEventsRejectedAfterDisableTelemetry() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -1021,13 +1066,17 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             isEnabled: true
         )
 
-        let spyLogger = SpyTelemetryLogger()
+        // Use the real TelemetryLogger backed by the mock CloudKit client
+        let realLogger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: cloudKit
+        )
         let service = TelemetryLifecycleService(
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "event-reject-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
-            logger: spyLogger,
+            logger: realLogger,
             syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
             subscriptionManager: MockSubscriptionManager()
         )
@@ -1039,23 +1088,26 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         // Log an event while enabled — should be accepted
         service.telemetryLogger.logEvent(name: "before_disable")
         try await Task.sleep(for: .milliseconds(50))
+        await realLogger.flush()
 
-        let preDisableCount = await spyLogger.events.count
-        XCTAssertEqual(preDisableCount, 1, "Event logged while enabled should be accepted")
+        let preDisableCount = try await cloudKit.countRecords()
+        XCTAssertEqual(preDisableCount, 1, "Event logged while enabled should reach CloudKit")
 
-        // Disable telemetry
+        // Disable telemetry — this calls setEnabled(false) then shutdown() on the real logger
         await service.disableTelemetry()
 
-        // Log events after disable — should be rejected
+        // countRecords is 0 now because disableTelemetry deletes all events
+        let postCleanupCount = try await cloudKit.countRecords()
+        XCTAssertEqual(postCleanupCount, 0, "disableTelemetry should delete all events")
+
+        // Log events after disable — the real logger must reject these
         service.telemetryLogger.logEvent(name: "after_disable_1")
         service.telemetryLogger.logEvent(name: "after_disable_2")
         try await Task.sleep(for: .milliseconds(50))
+        await realLogger.flush()
 
-        let postDisableCount = await spyLogger.events.count
-        XCTAssertEqual(postDisableCount, 1, "Events logged after disable should be rejected")
-
-        let loggerShutdown = await spyLogger.didShutdown
-        XCTAssertTrue(loggerShutdown, "Logger should be shut down after disableTelemetry")
+        let postDisableCount = try await cloudKit.countRecords()
+        XCTAssertEqual(postDisableCount, 0, "Events logged after disable must not reach CloudKit")
     }
 
     func testScenariosReregisteredAfterDisableAndReactivate() async throws {

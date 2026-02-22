@@ -216,6 +216,38 @@ final class TelemetryLoggerTests: XCTestCase {
 
         await logger.shutdown()
     }
+    // MARK: - Disable / shutdown lifecycle
+
+    /// Mirrors the exact sequence disableTelemetry() performs:
+    /// setEnabled(false) → shutdown(). Events must be rejected afterwards.
+    func testEventsRejectedAfterSetEnabledFalseThenShutdown() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        await logger.activate(enabled: true)
+        logger.logEvent(name: "while_enabled")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countBefore = await spy.savedRecordCount
+        XCTAssertEqual(countBefore, 1, "Event while enabled should be saved")
+
+        // Exact sequence from disableTelemetry()
+        await logger.setEnabled(false)
+        await logger.shutdown()
+
+        logger.logEvent(name: "after_disable_1")
+        logger.logEvent(name: "after_disable_2")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countAfter = await spy.savedRecordCount
+        XCTAssertEqual(countAfter, 1, "Events after setEnabled(false) + shutdown must be rejected")
+    }
+
     // MARK: - Re-activation after shutdown
 
     func testLoggerAcceptsEventsAfterShutdownAndReactivate() async throws {
