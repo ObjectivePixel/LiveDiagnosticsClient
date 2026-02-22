@@ -301,20 +301,22 @@ final class TelemetryCommandRecordTests: XCTestCase {
 
     // MARK: - Scenario Command Tests
 
-    func testEnableScenarioActionRawValue() {
-        XCTAssertEqual(TelemetrySchema.CommandAction.enableScenario.rawValue, "enableScenario")
-        XCTAssertEqual(TelemetrySchema.CommandAction.disableScenario.rawValue, "disableScenario")
+    func testActivateAndSetScenarioLevelActionRawValues() {
+        XCTAssertEqual(TelemetrySchema.CommandAction.activate.rawValue, "activate")
+        XCTAssertEqual(TelemetrySchema.CommandAction.setScenarioLevel.rawValue, "setScenarioLevel")
     }
 
-    func testInitWithScenarioName() {
+    func testInitWithScenarioNameAndDiagnosticLevel() {
         let command = TelemetryCommandRecord(
             clientId: "test-client",
-            action: .enableScenario,
-            scenarioName: "NetworkRequests"
+            action: .setScenarioLevel,
+            scenarioName: "NetworkRequests",
+            diagnosticLevel: TelemetryLogLevel.debug.rawValue
         )
 
-        XCTAssertEqual(command.action, .enableScenario)
+        XCTAssertEqual(command.action, .setScenarioLevel)
         XCTAssertEqual(command.scenarioName, "NetworkRequests")
+        XCTAssertEqual(command.diagnosticLevel, TelemetryLogLevel.debug.rawValue)
     }
 
     func testInitWithoutScenarioName() {
@@ -324,14 +326,16 @@ final class TelemetryCommandRecordTests: XCTestCase {
         )
 
         XCTAssertNil(command.scenarioName, "scenarioName should be nil for non-scenario commands")
+        XCTAssertNil(command.diagnosticLevel, "diagnosticLevel should be nil for non-scenario commands")
     }
 
-    func testRoundTripWithScenarioName() throws {
+    func testRoundTripWithScenarioNameAndLevel() throws {
         let original = TelemetryCommandRecord(
             commandId: "scenario-roundtrip",
             clientId: "test-client",
-            action: .enableScenario,
+            action: .setScenarioLevel,
             scenarioName: "DataSync",
+            diagnosticLevel: TelemetryLogLevel.warning.rawValue,
             created: Date(timeIntervalSince1970: 1000),
             status: .pending
         )
@@ -339,8 +343,9 @@ final class TelemetryCommandRecordTests: XCTestCase {
         let ckRecord = original.toCKRecord()
         let restored = try TelemetryCommandRecord(record: ckRecord)
 
-        XCTAssertEqual(restored.action, .enableScenario)
+        XCTAssertEqual(restored.action, .setScenarioLevel)
         XCTAssertEqual(restored.scenarioName, "DataSync")
+        XCTAssertEqual(restored.diagnosticLevel, TelemetryLogLevel.warning.rawValue)
     }
 
     func testRoundTripWithoutScenarioName() throws {
@@ -356,6 +361,7 @@ final class TelemetryCommandRecordTests: XCTestCase {
         let restored = try TelemetryCommandRecord(record: ckRecord)
 
         XCTAssertNil(restored.scenarioName)
+        XCTAssertNil(restored.diagnosticLevel)
     }
 
     func testAllCommandActions() {

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		9C643B162EF58F9200EF0165 /* ObjPxlLiveTelemetry in Frameworks */ = {isa = PBXBuildFile; productRef = 9C643B152EF58F9200EF0165 /* ObjPxlLiveTelemetry */; };
+		9CA71A862F4B6A4F006CE4B0 /* ObjPxlLiveTelemetry in Frameworks */ = {isa = PBXBuildFile; productRef = 9CA71A852F4B6A4F006CE4B0 /* ObjPxlLiveTelemetry */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,22 +34,9 @@
 		9C643AF42EF58F5500EF0165 /* Live Diagnostics Example ClientUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Live Diagnostics Example ClientUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		9C6317BB2F378CB7002C65D0 /* Exceptions for "Live Diagnostics Example Client" folder in "Live Diagnostics Example Client" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"Live-Diagnostics-Example-Client-Info.plist",
-			);
-			target = 9C643ADC2EF58F5400EF0165 /* Live Diagnostics Example Client */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9C643ADF2EF58F5400EF0165 /* Live Diagnostics Example Client */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				9C6317BB2F378CB7002C65D0 /* Exceptions for "Live Diagnostics Example Client" folder in "Live Diagnostics Example Client" target */,
-			);
 			path = "Live Diagnostics Example Client";
 			sourceTree = "<group>";
 		};
@@ -70,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9C643B162EF58F9200EF0165 /* ObjPxlLiveTelemetry in Frameworks */,
+				9CA71A862F4B6A4F006CE4B0 /* ObjPxlLiveTelemetry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +120,7 @@
 			name = "Live Diagnostics Example Client";
 			packageProductDependencies = (
 				9C643B152EF58F9200EF0165 /* ObjPxlLiveTelemetry */,
+				9CA71A852F4B6A4F006CE4B0 /* ObjPxlLiveTelemetry */,
 			);
 			productName = "Live Diagnostics Example Client";
 			productReference = 9C643ADD2EF58F5400EF0165 /* Live Diagnostics Example Client.app */;
@@ -215,7 +205,7 @@
 			mainGroup = 9C643AD42EF58F5400EF0165;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				9C643B142EF58F9200EF0165 /* XCLocalSwiftPackageReference "../../../ObjPxlLiveDiagnosticsClient" */,
+				9CA71A842F4B6A4F006CE4B0 /* XCLocalSwiftPackageReference "../../../LiveDiagnosticClient" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9C643ADE2EF58F5400EF0165 /* Products */;
@@ -649,14 +639,18 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		9C643B142EF58F9200EF0165 /* XCLocalSwiftPackageReference "../../../ObjPxlLiveDiagnosticsClient" */ = {
+		9CA71A842F4B6A4F006CE4B0 /* XCLocalSwiftPackageReference "../../../LiveDiagnosticClient" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../../ObjPxlLiveDiagnosticsClient;
+			relativePath = ../../../LiveDiagnosticClient;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		9C643B152EF58F9200EF0165 /* ObjPxlLiveTelemetry */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ObjPxlLiveTelemetry;
+		};
+		9CA71A852F4B6A4F006CE4B0 /* ObjPxlLiveTelemetry */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ObjPxlLiveTelemetry;
 		};

@@ -71,6 +71,15 @@ struct CommandDebugView: View {
                         }
                     }
 
+                    Button("Request Diagnostics", systemImage: "antenna.radiowaves.left.and.right") {
+                        Task {
+                            addLog("Requesting diagnostics...")
+                            await lifecycle.requestDiagnostics()
+                            addLog("Request complete. Status: \(statusDescription)")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+
                     Button("Trigger Reconcile", systemImage: "arrow.triangle.2.circlepath") {
                         Task {
                             addLog("Triggering reconcile...")
@@ -146,6 +155,8 @@ struct CommandDebugView: View {
             return "Disabled"
         case .pendingApproval:
             return "Pending Approval"
+        case .noRegistration:
+            return "No Registration"
         case .error(let message):
             return "Error: \(message)"
         }

@@ -46,7 +46,7 @@ public protocol CloudKitClientProtocol: Sendable {
     func createScenarios(_ scenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord]
     func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord]
     func updateScenario(_ scenario: TelemetryScenarioRecord) async throws -> TelemetryScenarioRecord
-    func deleteScenarios(forClient clientId: String) async throws -> Int
+    func deleteScenarios(forClient clientId: String?) async throws -> Int
     func createScenarioSubscription() async throws -> CKSubscription.ID
 
     // TelemetryClient subscriptions (for viewer)
@@ -871,12 +871,17 @@ public struct CloudKitClient: CloudKitClientProtocol {
         return try TelemetryScenarioRecord(record: saved)
     }
 
-    public func deleteScenarios(forClient clientId: String) async throws -> Int {
-        let predicate = NSPredicate(
-            format: "%K == %@",
-            TelemetrySchema.ScenarioField.clientId.rawValue,
-            clientId
-        )
+    public func deleteScenarios(forClient clientId: String?) async throws -> Int {
+        let predicate: NSPredicate
+        if let clientId {
+            predicate = NSPredicate(
+                format: "%K == %@",
+                TelemetrySchema.ScenarioField.clientId.rawValue,
+                clientId
+            )
+        } else {
+            predicate = NSPredicate(value: true)
+        }
         let query = CKQuery(recordType: TelemetrySchema.scenarioRecordType, predicate: predicate)
         query.sortDescriptors = []
 

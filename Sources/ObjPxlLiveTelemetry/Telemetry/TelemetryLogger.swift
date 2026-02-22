@@ -17,7 +17,7 @@ public protocol TelemetryLogging: Actor, Sendable {
         property1: String?
     )
 
-    func updateScenarioStates(_ states: [String: Bool])
+    func updateScenarioStates(_ states: [String: Int])
 
     func activate(enabled: Bool) async
     func setEnabled(_ enabled: Bool) async
@@ -86,9 +86,9 @@ public actor TelemetryLogger: TelemetryLogging {
     private nonisolated let continuationLock = OSAllocatedUnfairLock<AsyncStream<TelemetryEvent>.Continuation?>(initialState: nil)
     private nonisolated let shutdownLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     private nonisolated let stateLock = OSAllocatedUnfairLock<LoggerState>(initialState: .initializing)
-    private nonisolated let scenarioStatesLock = OSAllocatedUnfairLock<[String: Bool]>(initialState: [:])
+    private nonisolated let scenarioStatesLock = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
     public nonisolated let currentSessionId: String
-    private let deferredStream: AsyncStream<TelemetryEvent>
+    private var deferredStream: AsyncStream<TelemetryEvent>
 
     public init(
         configuration: Configuration = .default,
@@ -107,7 +107,7 @@ public actor TelemetryLogger: TelemetryLogging {
         self.deferredStream = stream
     }
 
-    public func updateScenarioStates(_ states: [String: Bool]) {
+    public func updateScenarioStates(_ states: [String: Int]) {
         scenarioStatesLock.withLock { $0 = states }
     }
 
@@ -157,9 +157,9 @@ public actor TelemetryLogger: TelemetryLogging {
         level: TelemetryLogLevel,
         property1: String?
     ) {
-        // Fast nonisolated check — if scenario is disabled, discard immediately
-        let isEnabled = scenarioStatesLock.withLock { $0[scenario] ?? false }
-        guard isEnabled else { return }
+        // Fast nonisolated check — if scenario level < event level, discard
+        let scenarioLevel = scenarioStatesLock.withLock { $0[scenario] ?? TelemetryScenarioRecord.levelOff }
+        guard scenarioLevel >= 0, level.rawValue >= scenarioLevel else { return }
 
         let isShutdown = shutdownLock.withLock { $0 }
         guard !isShutdown else { return }
@@ -202,9 +202,25 @@ public actor TelemetryLogger: TelemetryLogging {
     }
 
     public func activate(enabled: Bool) async {
+        // Reset shutdown state so logEvent calls are no longer rejected
+        shutdownLock.withLock { $0 = false }
+
+        // Cancel any leftover tasks from a previous lifecycle
+        flushTask?.cancel()
+        consumeTask?.cancel()
+
+        // Create a fresh stream + continuation (the old ones may have been finished by shutdown)
+        var newContinuation: AsyncStream<TelemetryEvent>.Continuation!
+        let stream = AsyncStream<TelemetryEvent> { cont in
+            newContinuation = cont
+        }
+        let capturedContinuation = newContinuation
+        continuationLock.withLock { $0 = capturedContinuation }
+        deferredStream = stream
+
         if enabled {
             // Start consuming and validating only when telemetry is actually enabled
-            await bootstrap(stream: deferredStream)
+            await bootstrap(stream: stream)
 
             // Flush queued events to pending
             for event in queuedEvents {
@@ -323,7 +339,7 @@ public actor NoopTelemetryLogger: TelemetryLogging {
 
     public nonisolated func logEvent(name: String, property1: String?) {}
     public nonisolated func logEvent(name: String, scenario: String, level: TelemetryLogLevel, property1: String?) {}
-    public func updateScenarioStates(_ states: [String: Bool]) {}
+    public func updateScenarioStates(_ states: [String: Int]) {}
     public func activate(enabled: Bool) async {}
     public func setEnabled(_ enabled: Bool) async {}
     public func flush() async {}

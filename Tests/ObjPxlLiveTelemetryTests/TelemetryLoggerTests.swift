@@ -143,8 +143,8 @@ final class TelemetryLoggerTests: XCTestCase {
         )
 
         await logger.activate(enabled: true)
-        await logger.updateScenarioStates(["MyScenario": true])
-        logger.logEvent(name: "should_send", scenario: "MyScenario", level: .diagnostic, property1: "test")
+        await logger.updateScenarioStates(["MyScenario": TelemetryLogLevel.debug.rawValue])
+        logger.logEvent(name: "should_send", scenario: "MyScenario", level: .info, property1: "test")
 
         try await Task.sleep(for: .milliseconds(50))
         await logger.flush()
@@ -156,7 +156,7 @@ final class TelemetryLoggerTests: XCTestCase {
         let savedRecords = await spy.savedRecords
         let record = try XCTUnwrap(savedRecords.first)
         XCTAssertEqual(record[TelemetrySchema.Field.scenario.rawValue] as? String, "MyScenario")
-        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? String, "diagnostic")
+        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? Int, TelemetryLogLevel.info.rawValue)
 
         await logger.shutdown()
     }
@@ -177,7 +177,7 @@ final class TelemetryLoggerTests: XCTestCase {
         let savedRecords = await spy.savedRecords
         let record = try XCTUnwrap(savedRecords.first)
         XCTAssertNil(record[TelemetrySchema.Field.scenario.rawValue] as? String)
-        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? String, "info")
+        XCTAssertEqual(record[TelemetrySchema.Field.logLevel.rawValue] as? Int, TelemetryLogLevel.info.rawValue)
 
         await logger.shutdown()
     }
@@ -198,21 +198,91 @@ final class TelemetryLoggerTests: XCTestCase {
         let countBefore = await spy.savedRecordCount
         XCTAssertEqual(countBefore, 0)
 
-        // Enable the scenario
-        await logger.updateScenarioStates(["TestScenario": true])
+        // Enable the scenario at debug level
+        await logger.updateScenarioStates(["TestScenario": TelemetryLogLevel.debug.rawValue])
         logger.logEvent(name: "after_enable", scenario: "TestScenario", level: .info, property1: nil)
         try await Task.sleep(for: .milliseconds(50))
         await logger.flush()
         let countAfter = await spy.savedRecordCount
         XCTAssertEqual(countAfter, 1)
 
-        // Disable the scenario again
-        await logger.updateScenarioStates(["TestScenario": false])
+        // Disable the scenario (set to off)
+        await logger.updateScenarioStates(["TestScenario": TelemetryScenarioRecord.levelOff])
         logger.logEvent(name: "after_disable", scenario: "TestScenario", level: .info, property1: nil)
         try await Task.sleep(for: .milliseconds(50))
         await logger.flush()
         let countFinal = await spy.savedRecordCount
         XCTAssertEqual(countFinal, 1, "No new events should be saved after disabling scenario")
+
+        await logger.shutdown()
+    }
+    // MARK: - Disable / shutdown lifecycle
+
+    /// Mirrors the exact sequence disableTelemetry() performs:
+    /// setEnabled(false) → shutdown(). Events must be rejected afterwards.
+    func testEventsRejectedAfterSetEnabledFalseThenShutdown() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        await logger.activate(enabled: true)
+        logger.logEvent(name: "while_enabled")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countBefore = await spy.savedRecordCount
+        XCTAssertEqual(countBefore, 1, "Event while enabled should be saved")
+
+        // Exact sequence from disableTelemetry()
+        await logger.setEnabled(false)
+        await logger.shutdown()
+
+        logger.logEvent(name: "after_disable_1")
+        logger.logEvent(name: "after_disable_2")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countAfter = await spy.savedRecordCount
+        XCTAssertEqual(countAfter, 1, "Events after setEnabled(false) + shutdown must be rejected")
+    }
+
+    // MARK: - Re-activation after shutdown
+
+    func testLoggerAcceptsEventsAfterShutdownAndReactivate() async throws {
+        let spy = SpyCloudKitClient()
+        let logger = TelemetryLogger(
+            configuration: .init(batchSize: 10, flushInterval: 60, maxRetries: 1),
+            client: spy
+        )
+
+        // First lifecycle: activate, log, shutdown
+        await logger.activate(enabled: true)
+        logger.logEvent(name: "first_lifecycle")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countAfterFirst = await spy.savedRecordCount
+        XCTAssertEqual(countAfterFirst, 1, "Event should be saved in first lifecycle")
+
+        await logger.shutdown()
+
+        // Events should be rejected after shutdown
+        logger.logEvent(name: "after_shutdown")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+        let countAfterShutdown = await spy.savedRecordCount
+        XCTAssertEqual(countAfterShutdown, 1, "Events should be rejected after shutdown")
+
+        // Second lifecycle: re-activate
+        await logger.activate(enabled: true)
+        logger.logEvent(name: "second_lifecycle")
+        try await Task.sleep(for: .milliseconds(50))
+        await logger.flush()
+
+        let countAfterReactivate = await spy.savedRecordCount
+        XCTAssertEqual(countAfterReactivate, 2, "Logger should accept events after re-activation")
 
         await logger.shutdown()
     }
@@ -274,6 +344,6 @@ private actor SpyCloudKitClient: CloudKitClientProtocol {
     func createScenarios(_ scenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord] { scenarios }
     func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord] { [] }
     func updateScenario(_ scenario: TelemetryScenarioRecord) async throws -> TelemetryScenarioRecord { scenario }
-    func deleteScenarios(forClient clientId: String) async throws -> Int { 0 }
+    func deleteScenarios(forClient clientId: String?) async throws -> Int { 0 }
     func createScenarioSubscription() async throws -> CKSubscription.ID { "test" }
 }

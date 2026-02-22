@@ -1,16 +1,16 @@
 import Foundation
 
 public protocol TelemetryScenarioStoring: Sendable {
-    func loadState(for scenarioName: String) async -> Bool?
-    func loadAllStates() async -> [String: Bool]
-    func saveState(for scenarioName: String, isEnabled: Bool) async
+    func loadLevel(for scenarioName: String) async -> Int?
+    func loadAllLevels() async -> [String: Int]
+    func saveLevel(for scenarioName: String, diagnosticLevel: Int) async
     func removeState(for scenarioName: String) async
     func removeAllStates() async
 }
 
 public actor UserDefaultsTelemetryScenarioStore: TelemetryScenarioStoring {
     static let keyPrefix = "telemetry.scenario."
-    static let keySuffix = ".isEnabled"
+    static let keySuffix = ".diagnosticLevel"
     static let registryKey = "telemetry.scenario.registry"
 
     private let defaults: UserDefaults
@@ -19,26 +19,26 @@ public actor UserDefaultsTelemetryScenarioStore: TelemetryScenarioStoring {
         self.defaults = userDefaults
     }
 
-    public func loadState(for scenarioName: String) async -> Bool? {
+    public func loadLevel(for scenarioName: String) async -> Int? {
         let key = Self.key(for: scenarioName)
         guard defaults.object(forKey: key) != nil else { return nil }
-        return defaults.bool(forKey: key)
+        return defaults.integer(forKey: key)
     }
 
-    public func loadAllStates() async -> [String: Bool] {
+    public func loadAllLevels() async -> [String: Int] {
         let names = defaults.stringArray(forKey: Self.registryKey) ?? []
-        var states: [String: Bool] = [:]
+        var levels: [String: Int] = [:]
         for name in names {
             let key = Self.key(for: name)
             if defaults.object(forKey: key) != nil {
-                states[name] = defaults.bool(forKey: key)
+                levels[name] = defaults.integer(forKey: key)
             }
         }
-        return states
+        return levels
     }
 
-    public func saveState(for scenarioName: String, isEnabled: Bool) async {
-        defaults.set(isEnabled, forKey: Self.key(for: scenarioName))
+    public func saveLevel(for scenarioName: String, diagnosticLevel: Int) async {
+        defaults.set(diagnosticLevel, forKey: Self.key(for: scenarioName))
         addToRegistry(scenarioName)
     }
 
