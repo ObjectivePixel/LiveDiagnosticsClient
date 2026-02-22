@@ -80,18 +80,19 @@ public struct TelemetryToggleView: View {
 
             // 4. Request Diagnostics button — shown when NOT active
             if !isActive {
-                Button {
-                    Task { await requestDiagnostics() }
-                } label: {
-                    HStack {
+                HStack {
+                    Button {
+                        Task { await requestDiagnostics() }
+                    } label: {
                         Label("Request Diagnostics", systemImage: "antenna.radiowaves.left.and.right")
-                        Spacer()
-                        if viewState == .syncing {
-                            ProgressView()
-                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(viewState.isBusy)
+                    if viewState == .syncing {
+                        ProgressView()
+                            .controlSize(.small)
                     }
                 }
-                .disabled(viewState.isBusy)
             }
 
             // 5. End Session button — shown when active
@@ -101,6 +102,7 @@ public struct TelemetryToggleView: View {
                 } label: {
                     Label("End Session", systemImage: "stop.fill")
                 }
+                .buttonStyle(.bordered)
                 .disabled(viewState.isBusy)
                 .confirmationDialog(
                     "End Diagnostic Session?",

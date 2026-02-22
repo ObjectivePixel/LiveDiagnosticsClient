@@ -952,6 +952,59 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertNotNil(cmd.errorMessage)
     }
 
+    func testEventsRejectedAfterDisableTelemetry() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "event-reject-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "event-reject-test",
+            created: .now,
+            isEnabled: true
+        )
+
+        let spyLogger = SpyTelemetryLogger()
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "event-reject-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: spyLogger,
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager()
+        )
+
+        // Reconcile to activate the logger
+        _ = await service.reconcile()
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Log an event while enabled — should be accepted
+        service.telemetryLogger.logEvent(name: "before_disable")
+        try await Task.sleep(for: .milliseconds(50))
+
+        let preDisableCount = await spyLogger.events.count
+        XCTAssertEqual(preDisableCount, 1, "Event logged while enabled should be accepted")
+
+        // Disable telemetry
+        await service.disableTelemetry()
+
+        // Log events after disable — should be rejected
+        service.telemetryLogger.logEvent(name: "after_disable_1")
+        service.telemetryLogger.logEvent(name: "after_disable_2")
+        try await Task.sleep(for: .milliseconds(50))
+
+        let postDisableCount = await spyLogger.events.count
+        XCTAssertEqual(postDisableCount, 1, "Events logged after disable should be rejected")
+
+        let loggerShutdown = await spyLogger.didShutdown
+        XCTAssertTrue(loggerShutdown, "Logger should be shut down after disableTelemetry")
+    }
+
     func testGracefulDegradationOnSubscriptionFailure() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -1039,6 +1092,7 @@ private actor SpyTelemetryLogger: TelemetryLogging {
     func activate(enabled: Bool) async {
         isActivated = true
         isEnabled = enabled
+        didShutdown = false
     }
 
     func setEnabled(_ enabled: Bool) async {
@@ -1049,9 +1103,11 @@ private actor SpyTelemetryLogger: TelemetryLogging {
 
     func shutdown() async {
         didShutdown = true
+        isEnabled = false
     }
 
     private func register(name: String) {
+        guard isEnabled, !didShutdown else { return }
         events.append(name)
     }
 }
