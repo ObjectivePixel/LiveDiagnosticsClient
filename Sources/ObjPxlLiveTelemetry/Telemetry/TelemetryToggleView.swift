@@ -176,7 +176,7 @@ private extension TelemetryToggleView {
     func copyClientCode() {
         let code = clientCode
         guard !code.isEmpty else { return }
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !os(watchOS)
         UIPasteboard.general.string = code
         #elseif canImport(AppKit)
         NSPasteboard.general.clearContents()
