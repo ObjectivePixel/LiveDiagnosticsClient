@@ -78,8 +78,8 @@ public struct TelemetryToggleView: View {
                 }
             }
 
-            // 4. Request Diagnostics button — shown when NOT active
-            if !isActive {
+            // 4. Request Diagnostics button — shown when NOT active and not force-on
+            if !isActive, !lifecycle.isForceOn {
                 HStack {
                     Button {
                         Task { await requestDiagnostics() }
@@ -95,8 +95,8 @@ public struct TelemetryToggleView: View {
                 }
             }
 
-            // 5. End Session button — shown when active
-            if isActive {
+            // 5. End Session button — shown when active and not force-on
+            if isActive, !lifecycle.isForceOn {
                 Button(role: .destructive) {
                     showEndSessionConfirmation = true
                 } label: {
@@ -120,7 +120,11 @@ public struct TelemetryToggleView: View {
         } header: {
             Text("Telemetry")
         } footer: {
-            Text("Share your client code with the diagnostics administrator to enable telemetry.")
+            if lifecycle.isForceOn {
+                Text("Telemetry is force-enabled for this build.")
+            } else {
+                Text("Share your client code with the diagnostics administrator to enable telemetry.")
+            }
         }
         .task {
             await bootstrap()
@@ -132,7 +136,7 @@ public struct TelemetryToggleView: View {
     }
 
     private var isActive: Bool {
-        lifecycle.status == .enabled
+        lifecycle.status == .enabled || lifecycle.isForceOn
     }
 }
 

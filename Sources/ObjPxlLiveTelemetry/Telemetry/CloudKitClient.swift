@@ -62,16 +62,12 @@ public extension CloudKitClientProtocol {
 }
 
 public struct CloudKitClient: CloudKitClientProtocol {
-    public let container: CKContainer
-    public let database: CKDatabase
     public let identifier: String
+    private var container: CKContainer { CKContainer(identifier: identifier) }
+    private var database: CKDatabase { container.publicCloudDatabase }
 
     public init(containerIdentifier: String) {
-        let resolvedContainer = CKContainer(identifier: containerIdentifier)
-        container = resolvedContainer
-        database = resolvedContainer.publicCloudDatabase
         identifier = containerIdentifier
-        print("☁️ [CloudKitClient] Initialized with container: \(containerIdentifier)")
     }
 
     public func validateSchema() async -> Bool {
@@ -371,7 +367,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
     // Debug method to check what databases we're working with
     public func debugDatabaseInfo() async {
         print("🔍 Database Debug Info:")
-        print("   Container ID: \(container.containerIdentifier ?? "unknown")")
+        print("   Container ID: \(identifier)")
         print("   Database: \(database)")
         print("   Database scope: Public")
         
@@ -405,7 +401,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
     }
     
     public func getDebugInfo() async -> DebugInfo {
-        let containerID = container.containerIdentifier ?? "unknown"
+        let containerID = identifier
         
         #if DEBUG
         let buildType = "DEBUG"
