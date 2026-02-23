@@ -50,6 +50,7 @@ public final class TelemetryLifecycleService {
     public private(set) var clientRecord: TelemetryClientRecord?
     public private(set) var statusMessage: String?
     public private(set) var isRestorationInProgress = false
+    public private(set) var isForceOn = false
     public private(set) var scenarioStates: [String: Int] = [:]
     private var hasStartedUp = false
 
@@ -158,7 +159,7 @@ public final class TelemetryLifecycleService {
         }
 
         // Activate logger with final enabled state
-        let shouldBeEnabled = settings.telemetryRequested && settings.telemetrySendingEnabled
+        let shouldBeEnabled = settings.telemetryRequested && (settings.telemetrySendingEnabled || isForceOn)
         await logger.activate(enabled: shouldBeEnabled)
 
         // Register any scenarios that were deferred because clientIdentifier wasn't available
@@ -175,14 +176,18 @@ public final class TelemetryLifecycleService {
     }
 
     @discardableResult
-    public func enableTelemetry() async -> TelemetrySettings {
+    public func enableTelemetry(force: Bool = false) async -> TelemetrySettings {
         setStatus(.syncing, message: "Enabling telemetry…")
+
+        if force {
+            isForceOn = true
+        }
 
         var currentSettings = await settingsStore.load()
         let identifier = currentSettings.clientIdentifier ?? identifierGenerator.generateIdentifier()
         currentSettings.clientIdentifier = identifier
         currentSettings.telemetryRequested = true
-        currentSettings.telemetrySendingEnabled = false
+        currentSettings.telemetrySendingEnabled = force
 
         settings = await saveAndBackupSettings(currentSettings)
         await updateLoggerEnabled()
@@ -190,15 +195,21 @@ public final class TelemetryLifecycleService {
         do {
             let existingClients = try await cloudKitClient.fetchTelemetryClients(clientId: identifier, isEnabled: nil)
             if let existing = existingClients.first {
-                // Use existing client record as-is (don't modify isEnabled - only admin tool should do that)
-                clientRecord = existing
+                if force && !existing.isEnabled, let recordID = existing.recordID {
+                    // Force mode: update existing record to enabled
+                    clientRecord = try await cloudKitClient.updateTelemetryClient(
+                        recordID: recordID, clientId: nil, created: nil, isEnabled: true
+                    )
+                } else {
+                    clientRecord = existing
+                }
             } else {
                 do {
-                    // Create client record with isEnabled = false; admin tool will enable it
+                    // Create client record with isEnabled matching force flag
                     let pendingRecord = try await cloudKitClient.createTelemetryClient(
                         clientId: identifier,
                         created: .now,
-                        isEnabled: false
+                        isEnabled: force
                     )
                     clientRecord = pendingRecord
                 } catch {
@@ -217,9 +228,8 @@ public final class TelemetryLifecycleService {
                 }
             }
 
-            // Only enable local sending if the server has isEnabled = true (set by admin tool)
             let serverEnabled = clientRecord?.isEnabled ?? false
-            if serverEnabled {
+            if serverEnabled || force {
                 currentSettings.telemetrySendingEnabled = true
                 settings = await saveAndBackupSettings(currentSettings)
                 reconciliation = .localAndServerEnabled
@@ -250,6 +260,7 @@ public final class TelemetryLifecycleService {
     @discardableResult
     public func disableTelemetry(reason: ReconciliationResult? = nil) async -> TelemetrySettings {
         setStatus(.syncing, message: "Disabling telemetry…")
+        isForceOn = false
 
         // 1. Teardown command processing (unregister subscription)
         await teardownCommandProcessing()
@@ -488,17 +499,27 @@ public final class TelemetryLifecycleService {
                 settings = await saveAndBackupSettings(currentSettings)
                 outcome = .serverEnabledLocalDisabled
             case (true, false):
-                outcome = .serverDisabledLocalEnabled
-                reconciliation = outcome
-                _ = await disableTelemetry(reason: outcome)
-                return outcome
+                if isForceOn {
+                    // Force-on mode: keep enabled regardless of server state
+                    outcome = .localAndServerEnabled
+                } else {
+                    outcome = .serverDisabledLocalEnabled
+                    reconciliation = outcome
+                    _ = await disableTelemetry(reason: outcome)
+                    return outcome
+                }
             case (false, false):
-                if clients.isEmpty {
+                if clients.isEmpty, !isForceOn {
                     // No client record exists - reset session state (identifier preserved)
                     outcome = .missingClient
                     currentSettings = .defaults
                     clientRecord = nil
                     settings = await resetAndClearBackup()
+                } else if isForceOn {
+                    // Force-on mode: treat as enabled regardless of server state
+                    currentSettings.telemetrySendingEnabled = true
+                    settings = await saveAndBackupSettings(currentSettings)
+                    outcome = .localAndServerEnabled
                 } else {
                     // Client exists but not yet enabled by admin - keep requested state
                     outcome = .pendingApproval
@@ -721,7 +742,7 @@ private extension TelemetryLifecycleService {
     }
 
     func updateLoggerEnabled() async {
-        let shouldBeEnabled = settings.telemetryRequested && settings.telemetrySendingEnabled
+        let shouldBeEnabled = settings.telemetryRequested && (settings.telemetrySendingEnabled || isForceOn)
         await logger.setEnabled(shouldBeEnabled)
     }
 
