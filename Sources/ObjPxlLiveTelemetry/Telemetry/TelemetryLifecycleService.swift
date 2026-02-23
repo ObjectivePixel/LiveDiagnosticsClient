@@ -116,6 +116,20 @@ public final class TelemetryLifecycleService {
         return localSettings
     }
 
+    /// Cleans up CloudKit records left by a previous force-on build.
+    ///
+    /// Call this at every launch before ``startup()``. When a previous build
+    /// used ``enableTelemetry(force: true)``, this performs a full cleanup
+    /// (identical to disabling telemetry from the UI) and clears the persisted
+    /// flag so the cleanup does not run again. When the flag is not set this
+    /// method returns immediately with no CloudKit or telemetry activity.
+    public func cleanupPreviousForceOnSession() async {
+        let savedSettings = await settingsStore.load()
+        guard savedSettings.forceOnActive else { return }
+        settings = savedSettings
+        _ = await disableTelemetry()
+    }
+
     private func performBackgroundRestore() async {
         // If telemetry was never enabled, skip the CloudKit backup restore entirely
         if !settings.telemetryRequested && settings.clientIdentifier == nil {
@@ -188,6 +202,9 @@ public final class TelemetryLifecycleService {
         currentSettings.clientIdentifier = identifier
         currentSettings.telemetryRequested = true
         currentSettings.telemetrySendingEnabled = force
+        if force {
+            currentSettings.forceOnActive = true
+        }
 
         settings = await saveAndBackupSettings(currentSettings)
         await updateLoggerEnabled()
