@@ -635,6 +635,52 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertFalse(service.isRestorationInProgress)
     }
 
+    /// When telemetryRequested is false but a speculative clientIdentifier exists
+    /// (from TelemetryToggleView.bootstrap), the backup restore is skipped
+    /// entirely and the clientIdentifier must be preserved — it is created once
+    /// per install and never reset.
+    func testStartupWithSpeculativeClientIdPreservesIdentifier() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        // Simulate TelemetryToggleView.bootstrap() having generated a clientIdentifier
+        // without the user ever requesting telemetry
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: false,
+                telemetrySendingEnabled: false,
+                clientIdentifier: "speculative-id"
+            )
+        )
+        let backupClient = MockBackupClient()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "speculative-id"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: backupClient)
+        )
+
+        await service.startup()
+
+        // Wait for background restore to complete
+        try await Task.sleep(for: .milliseconds(200))
+
+        // Backup restore should be skipped — telemetryRequested is false
+        let loadCount = await backupClient.loadCallCount
+        XCTAssertEqual(loadCount, 0, "Backup restore should be skipped when telemetryRequested is false")
+        XCTAssertEqual(service.status, TelemetryLifecycleService.Status.disabled)
+        XCTAssertFalse(service.isRestorationInProgress)
+
+        // The speculative clientIdentifier must survive — it is stable for the app's lifetime
+        XCTAssertEqual(service.settings.clientIdentifier, "speculative-id", "Client identifier must be preserved across startup")
+
+        // No CloudKit client records should have been created or fetched
+        let clients = await cloudKit.telemetryClients()
+        XCTAssertTrue(clients.isEmpty, "No CloudKit calls should occur when telemetry was never requested")
+    }
+
     func testRegisterScenariosDoesNotCreateDuplicates() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()

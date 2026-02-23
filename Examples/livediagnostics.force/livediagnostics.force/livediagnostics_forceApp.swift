@@ -35,22 +35,20 @@ struct livediagnostics_forceApp: App {
                 .task {
                     appDelegate.telemetryLifecycle = telemetryLifecycle
 
-                    // 1. Clean up any stale force-on session from a previous build
-                    await telemetryLifecycle.cleanupPreviousForceOnSession()
-
-                    // 2. Start the lifecycle (loads settings, performs background restore)
+                    // 1. Start the lifecycle (loads settings, cleans up any stale
+                    //    force-on session, performs background restore)
                     await telemetryLifecycle.startup()
 
-                    // 3. Immediately enable telemetry — creates the client record
+                    // 2. Immediately enable telemetry — creates the client record
                     //    without waiting for the user to tap a button.
                     await telemetryLifecycle.enableTelemetry(force: true)
 
-                    // 4. Register scenarios
+                    // 3. Register scenarios
                     try? await telemetryLifecycle.registerScenarios(
                         ForceOnScenario.allCases.map(\.rawValue)
                     )
 
-                    // 5. Force every scenario to Debug level so all events are captured
+                    // 4. Force every scenario to Debug level so all events are captured
                     for scenario in ForceOnScenario.allCases {
                         try? await telemetryLifecycle.setScenarioDiagnosticLevel(
                             scenario.rawValue,

@@ -99,13 +99,26 @@ public final class TelemetryLifecycleService {
     @discardableResult
     public func startup() async -> TelemetrySettings {
         if hasStartedUp { return settings }
-        hasStartedUp = true
 
         setStatus(.loading, message: "Loading telemetry preferences")
 
-        // Load from UserDefaults (fast)
+        // Load from UserDefaults (single read for both cleanup and restore)
         let localSettings = await settingsStore.load()
         settings = localSettings
+
+        // Re-check after the await — another caller may have raced through the
+        // same load while we were suspended.  Settings are now populated so the
+        // second caller can return safely, but only one should start the
+        // background restore.
+        if hasStartedUp { return settings }
+        hasStartedUp = true
+
+        // Clean up any stale force-on session from a previous build before
+        // proceeding with the normal restore path.
+        if localSettings.forceOnActive {
+            _ = await disableTelemetry()
+            return settings
+        }
 
         // Kick off background restoration (non-blocking on telemetry thread)
         isRestorationInProgress = true
@@ -116,23 +129,9 @@ public final class TelemetryLifecycleService {
         return localSettings
     }
 
-    /// Cleans up CloudKit records left by a previous force-on build.
-    ///
-    /// Call this at every launch before ``startup()``. When a previous build
-    /// used ``enableTelemetry(force: true)``, this performs a full cleanup
-    /// (identical to disabling telemetry from the UI) and clears the persisted
-    /// flag so the cleanup does not run again. When the flag is not set this
-    /// method returns immediately with no CloudKit or telemetry activity.
-    public func cleanupPreviousForceOnSession() async {
-        let savedSettings = await settingsStore.load()
-        guard savedSettings.forceOnActive else { return }
-        settings = savedSettings
-        _ = await disableTelemetry()
-    }
-
     private func performBackgroundRestore() async {
         // If telemetry was never enabled, skip the CloudKit backup restore entirely
-        if !settings.telemetryRequested && settings.clientIdentifier == nil {
+        if !settings.telemetryRequested {
             reconciliation = .allDisabled
             setStatus(.disabled, message: "Telemetry disabled")
             await logger.activate(enabled: false)

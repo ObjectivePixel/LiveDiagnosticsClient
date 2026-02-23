@@ -8,15 +8,14 @@ public protocol CloudKitSettingsBackupClientProtocol: Sendable {
 }
 
 public struct CloudKitSettingsBackupClient: CloudKitSettingsBackupClientProtocol {
-    private let container: CKContainer
-    private let database: CKDatabase
+    private let identifier: String
+    private var container: CKContainer { CKContainer(identifier: identifier) }
+    private var database: CKDatabase { container.privateCloudDatabase }
     private static let recordType = TelemetrySchema.settingsBackupRecordType
     private static let fixedRecordName = "TelemetrySettingsBackup"
 
     public init(containerIdentifier: String) {
-        let resolvedContainer = CKContainer(identifier: containerIdentifier)
-        self.container = resolvedContainer
-        self.database = resolvedContainer.privateCloudDatabase
+        self.identifier = containerIdentifier
     }
 
     public func saveSettings(_ settings: TelemetrySettings) async throws {

@@ -79,7 +79,15 @@ public actor TelemetryLogger: TelemetryLogging {
     private let config: Configuration
     private var flushTask: Task<Void, Never>?
     private var consumeTask: Task<Void, Never>?
-    private let deviceInfo: DeviceInfo
+    private nonisolated let deviceInfoLock = OSAllocatedUnfairLock<DeviceInfo?>(initialState: nil)
+    private nonisolated var deviceInfo: DeviceInfo {
+        deviceInfoLock.withLock { cached in
+            if let cached { return cached }
+            let info = DeviceInfo.current
+            cached = info
+            return info
+        }
+    }
     private var pending: [TelemetryEvent] = []
     private var queuedEvents: [TelemetryEvent] = []
     private var offline = false
@@ -96,7 +104,6 @@ public actor TelemetryLogger: TelemetryLogging {
     ) {
         self.client = client
         self.config = configuration
-        self.deviceInfo = DeviceInfo.current
         self.currentSessionId = UUID().uuidString
         var continuation: AsyncStream<TelemetryEvent>.Continuation!
         let stream = AsyncStream<TelemetryEvent> { cont in
