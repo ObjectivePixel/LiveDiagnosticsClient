@@ -468,7 +468,7 @@ public final class TelemetryLifecycleService {
             } else if let enableCommand = pendingCommands.first(where: { $0.action == .enable }) {
                 await handleActivateCommand(enableCommand)
             } else {
-                setStatus(.noRegistration, message: "No registration found. Share your client code with the diagnostics administrator.")
+                setStatus(.noRegistration, message: "Not registered.")
             }
         } catch {
             setStatus(.error("Check failed: \(error.localizedDescription)"),
