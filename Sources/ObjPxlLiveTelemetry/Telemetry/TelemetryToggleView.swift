@@ -16,7 +16,6 @@ import AppKit
 public struct TelemetryToggleView: View {
     private let lifecycle: TelemetryLifecycleService
     @State private var viewState: ViewState = .idle
-    @State private var didBootstrap = false
     @State private var showEndSessionConfirmation = false
     @State private var showCopyConfirmation = false
 
@@ -56,7 +55,8 @@ public struct TelemetryToggleView: View {
             TelemetryStatusRow(
                 viewState: viewState,
                 status: lifecycle.status,
-                message: lifecycle.statusMessage
+                message: lifecycle.statusMessage,
+                scenarioSummary: scenarioSummary
             )
 
             // 3. Session ID — shown when active
@@ -95,15 +95,25 @@ public struct TelemetryToggleView: View {
                 }
             }
 
-            // 5. End Session button — shown when active and not force-on
+            // 5. Refresh / End Session buttons — shown when active and not force-on
             if isActive, !lifecycle.isForceOn {
-                Button(role: .destructive) {
-                    showEndSessionConfirmation = true
-                } label: {
-                    Label("End Session", systemImage: "stop.fill")
+                HStack {
+                    Button {
+                        Task { await refreshSession() }
+                    } label: {
+                        Label("Refresh Session", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(viewState.isBusy)
+
+                    Button(role: .destructive) {
+                        showEndSessionConfirmation = true
+                    } label: {
+                        Label("End Session", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(viewState.isBusy)
                 }
-                .buttonStyle(.bordered)
-                .disabled(viewState.isBusy)
                 .confirmationDialog(
                     "End Diagnostic Session?",
                     isPresented: $showEndSessionConfirmation,
@@ -119,12 +129,6 @@ public struct TelemetryToggleView: View {
             }
         } header: {
             Text("Telemetry")
-        } footer: {
-            if lifecycle.isForceOn {
-                Text("Telemetry is force-enabled for this build.")
-            } else {
-                Text("Share your client code with the diagnostics administrator to enable telemetry.")
-            }
         }
         .task {
             await bootstrap()
@@ -138,6 +142,21 @@ public struct TelemetryToggleView: View {
     private var isActive: Bool {
         lifecycle.status == .enabled || lifecycle.isForceOn
     }
+
+    private var scenarioSummary: String {
+        let enabled = lifecycle.scenarioStates
+            .filter { $0.value >= 0 }
+            .sorted { $0.key < $1.key }
+            .map { name, level in
+                let levelName = TelemetryLogLevel(rawValue: level)?.description ?? "Level \(level)"
+                return "\(name): \(levelName)"
+            }
+
+        if enabled.isEmpty {
+            return "No diagnostic scenarios enabled."
+        }
+        return enabled.joined(separator: ", ")
+    }
 }
 
 private extension TelemetryToggleView {
@@ -149,13 +168,18 @@ private extension TelemetryToggleView {
             await lifecycle.generateAndPersistClientIdentifier()
         }
 
-        didBootstrap = true
         settleViewState()
     }
 
     func requestDiagnostics() async {
         viewState = .syncing
         await lifecycle.requestDiagnostics()
+        settleViewState()
+    }
+
+    func refreshSession() async {
+        viewState = .syncing
+        await lifecycle.reconcile()
         settleViewState()
     }
 
@@ -214,6 +238,7 @@ private struct TelemetryStatusRow: View {
     var viewState: ViewState
     var status: TelemetryLifecycleService.Status
     var message: String?
+    var scenarioSummary: String
 
     var body: some View {
         LabeledContent {
@@ -227,7 +252,11 @@ private struct TelemetryStatusRow: View {
         }
 
         if let message, !message.isEmpty {
-            Text(message)
+            Text("\(message) — \(scenarioSummary)")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } else {
+            Text(scenarioSummary)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
