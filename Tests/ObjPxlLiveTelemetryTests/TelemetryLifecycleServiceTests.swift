@@ -1293,10 +1293,10 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         try await service.registerScenarios(["NetworkRequests"])
         XCTAssertEqual(service.scenarioStates.count, 1, "Pending scenarios should set local state")
 
-        // Enable (creates client + registers pending scenarios)
-        await service.enableTelemetry()
+        // Force-enable (bypasses admin approval, so scenarios are actually registered)
+        await service.enableTelemetry(force: true)
         let afterEnable = await cloudKit.scenarioList().count
-        XCTAssertEqual(afterEnable, 1, "Pending scenario should be registered on enable")
+        XCTAssertEqual(afterEnable, 1, "Pending scenario should be registered on force-enable")
 
         // Disable — should fully clean up
         await service.disableTelemetry()
@@ -1307,6 +1307,39 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
 
         let afterDisable = await cloudKit.scenarioList().count
         XCTAssertEqual(afterDisable, 0, "CloudKit scenarios should be deleted after disable")
+    }
+
+    func testRegisterScenariosWhilePendingApprovalDoesNotWriteToCloudKit() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "pending-scenario"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        // Request diagnostics — creates client with isEnabled=false (pending admin approval)
+        await service.enableTelemetry()
+        XCTAssertEqual(service.status, .pendingApproval)
+        XCTAssertTrue(service.settings.telemetryRequested)
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
+
+        // Register scenarios while pending — should NOT create CloudKit records
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+
+        let scenarioCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(scenarioCount, 0, "Scenarios should not be created in CloudKit while client is pending approval")
+
+        // In-memory states should still be populated for UI
+        XCTAssertEqual(service.scenarioStates.count, 2)
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], TelemetryScenarioRecord.levelOff)
     }
 
     func testGracefulDegradationOnSubscriptionFailure() async throws {
