@@ -252,9 +252,18 @@ private struct TelemetryStatusRow: View {
         }
 
         if let message, !message.isEmpty {
+            #if os(watchOS)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Text(scenarioSummary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            #else
             Text("\(message) — \(scenarioSummary)")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            #endif
         } else {
             Text(scenarioSummary)
                 .font(.footnote)

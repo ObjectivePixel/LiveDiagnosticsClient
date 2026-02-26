@@ -175,8 +175,12 @@ public final class TelemetryLifecycleService {
         let shouldBeEnabled = settings.telemetryRequested && (settings.telemetrySendingEnabled || isForceOn)
         await logger.activate(enabled: shouldBeEnabled)
 
-        // Register any scenarios that were deferred because clientIdentifier wasn't available
-        if let clientId = settings.clientIdentifier {
+        // Register any scenarios that were deferred because clientIdentifier wasn't available.
+        // Guard on telemetryRequested — reconcile() may have called disableTelemetry()
+        // internally, which resets telemetryRequested to false and cleans up scenarios.
+        // Without this check, scenarios would be re-created in CloudKit immediately
+        // after being deleted.
+        if settings.telemetryRequested, let clientId = settings.clientIdentifier {
             let scenariosToRegister = pendingScenarioNames ?? (registeredScenarioNames.isEmpty ? nil : registeredScenarioNames)
             if let names = scenariosToRegister {
                 await performScenarioRegistration(names, clientId: clientId)
@@ -331,6 +335,7 @@ public final class TelemetryLifecycleService {
         // Always clean up local state regardless of CloudKit errors
         scenarioRecords.removeAll()
         scenarioStates.removeAll()
+        pendingScenarioNames = nil
         await scenarioStore.removeAllStates()
         await pushScenarioStatesToLogger()
 
@@ -363,8 +368,9 @@ public final class TelemetryLifecycleService {
 
     public func registerScenarios(_ scenarioNames: [String]) async throws {
         registeredScenarioNames = scenarioNames
-        guard let clientId = settings.clientIdentifier else {
-            // No client ID yet — store for later registration after startup completes
+        guard let clientId = settings.clientIdentifier,
+              settings.telemetryRequested else {
+            // No client ID yet or telemetry not active — store for later registration
             pendingScenarioNames = scenarioNames
             // Still load persisted levels so the UI shows something immediately
             var levels: [String: Int] = [:]
