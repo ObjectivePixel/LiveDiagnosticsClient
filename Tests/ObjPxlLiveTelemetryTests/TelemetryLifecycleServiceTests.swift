@@ -1221,6 +1221,94 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(scenarioNames, ["DataSync", "NetworkRequests"])
     }
 
+    func testRegisterScenariosAfterDisableDoesNotWriteToCloudKit() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "no-leak-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "no-leak-test",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "no-leak-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+
+        // Register scenarios while telemetry is active
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let activeCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(activeCount, 2, "Scenarios should be created while telemetry is active")
+
+        // Disable telemetry — should clean up everything
+        await service.disableTelemetry()
+        let afterDisableCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterDisableCount, 0, "Scenarios should be deleted on disable")
+
+        // Re-register scenarios after disable — should NOT create CloudKit records
+        // because telemetryRequested is now false (even though clientIdentifier persists)
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let afterReregisterCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterReregisterCount, 0, "Scenarios should not be re-created in CloudKit when telemetry is disabled")
+
+        // In-memory states should still be populated (for UI) but all off
+        XCTAssertEqual(service.scenarioStates.count, 2)
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], TelemetryScenarioRecord.levelOff)
+        XCTAssertEqual(service.scenarioStates["DataSync"], TelemetryScenarioRecord.levelOff)
+    }
+
+    func testDisableTelemetryClearsScenariosBeforeReactivation() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "pending-clear"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        // Register scenarios without telemetry active — they are stored as pending
+        try await service.registerScenarios(["NetworkRequests"])
+        XCTAssertEqual(service.scenarioStates.count, 1, "Pending scenarios should set local state")
+
+        // Enable (creates client + registers pending scenarios)
+        await service.enableTelemetry()
+        let afterEnable = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterEnable, 1, "Pending scenario should be registered on enable")
+
+        // Disable — should fully clean up
+        await service.disableTelemetry()
+        XCTAssertTrue(service.scenarioStates.isEmpty, "Scenario states should be cleared after disable")
+
+        let persisted = await scenarioStore.loadAllLevels()
+        XCTAssertTrue(persisted.isEmpty, "Persisted scenario levels should be cleared after disable")
+
+        let afterDisable = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterDisable, 0, "CloudKit scenarios should be deleted after disable")
+    }
+
     func testGracefulDegradationOnSubscriptionFailure() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
