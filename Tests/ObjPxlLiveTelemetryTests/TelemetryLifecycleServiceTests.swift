@@ -39,7 +39,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+
         )
 
         await service.enableTelemetry()
@@ -73,7 +73,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+
         )
 
         await service.enableTelemetry()
@@ -104,7 +104,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "sampleid01"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+
         )
 
         await service.enableTelemetry()
@@ -128,7 +128,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "delete-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+
         )
 
         // Enable telemetry (creates client with isEnabled = false)
@@ -161,7 +161,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-cleanup"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -198,7 +198,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "pending-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+
         )
 
         // Enable telemetry (creates client with isEnabled = false, waiting for admin)
@@ -246,7 +246,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "abc123"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: spyLogger,
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+
         )
 
         let outcome = await service.reconcile()
@@ -284,7 +284,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "client-off"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient())
+
         )
 
         let outcome = await service.reconcile()
@@ -333,7 +333,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-enable-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: spyLogger,
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -384,7 +384,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-disable-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -439,7 +439,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-delete-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -499,7 +499,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-order-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -547,7 +547,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-fail-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -574,7 +574,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "sub-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: mockSubscriptionManager
         )
 
@@ -595,7 +595,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "unsub-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: mockSubscriptionManager
         )
 
@@ -611,34 +611,28 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
     func testStartupWithNeverEnabledTelemetryMakesNoCloudKitCalls() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
-        let backupClient = MockBackupClient()
 
         let service = TelemetryLifecycleService(
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "no-call-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
-            logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: backupClient)
+            logger: SpyTelemetryLogger()
         )
 
         // Default settings: telemetryRequested=false, clientIdentifier=nil
         await service.startup()
 
-        // Wait for background restore to complete
+        // Wait for background reconciliation to complete
         try await Task.sleep(for: .milliseconds(200))
 
-        // Backup restore should have been skipped entirely
-        let loadCount = await backupClient.loadCallCount
-        XCTAssertEqual(loadCount, 0, "Backup restore should be skipped when telemetry was never enabled")
         XCTAssertEqual(service.status, TelemetryLifecycleService.Status.disabled)
         XCTAssertFalse(service.isRestorationInProgress)
     }
 
     /// When telemetryRequested is false but a speculative clientIdentifier exists
-    /// (from TelemetryToggleView.bootstrap), the backup restore is skipped
-    /// entirely and the clientIdentifier must be preserved — it is created once
-    /// per install and never reset.
+    /// (from TelemetryToggleView.bootstrap), the clientIdentifier must be
+    /// preserved — it is created once per install and never reset.
     func testStartupWithSpeculativeClientIdPreservesIdentifier() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -651,25 +645,20 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
                 clientIdentifier: "speculative-id"
             )
         )
-        let backupClient = MockBackupClient()
 
         let service = TelemetryLifecycleService(
             settingsStore: store,
             cloudKitClient: cloudKit,
             identifierGenerator: FixedIdentifierGenerator(identifier: "speculative-id"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
-            logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: backupClient)
+            logger: SpyTelemetryLogger()
         )
 
         await service.startup()
 
-        // Wait for background restore to complete
+        // Wait for background reconciliation to complete
         try await Task.sleep(for: .milliseconds(200))
 
-        // Backup restore should be skipped — telemetryRequested is false
-        let loadCount = await backupClient.loadCallCount
-        XCTAssertEqual(loadCount, 0, "Backup restore should be skipped when telemetryRequested is false")
         XCTAssertEqual(service.status, TelemetryLifecycleService.Status.disabled)
         XCTAssertFalse(service.isRestorationInProgress)
 
@@ -704,7 +693,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "dup-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -747,7 +736,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -791,7 +780,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-restore"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -831,7 +820,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-toggle"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: spyLogger,
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -879,7 +868,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-end"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -932,7 +921,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "current-client"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -965,7 +954,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "scenario-cleanup"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -1028,7 +1017,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-scenario-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -1081,7 +1070,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "cmd-no-name"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -1123,7 +1112,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "event-reject-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: realLogger,
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager()
         )
 
@@ -1179,7 +1168,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "reregister-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: MockSubscriptionManager(),
             scenarioStore: scenarioStore
         )
@@ -1221,6 +1210,127 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(scenarioNames, ["DataSync", "NetworkRequests"])
     }
 
+    func testRegisterScenariosAfterDisableDoesNotWriteToCloudKit() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        _ = await store.save(
+            TelemetrySettings(
+                telemetryRequested: true,
+                telemetrySendingEnabled: true,
+                clientIdentifier: "no-leak-test"
+            )
+        )
+        _ = try await cloudKit.createTelemetryClient(
+            clientId: "no-leak-test",
+            created: .now,
+            isEnabled: true
+        )
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "no-leak-test"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        _ = await service.reconcile()
+
+        // Register scenarios while telemetry is active
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let activeCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(activeCount, 2, "Scenarios should be created while telemetry is active")
+
+        // Disable telemetry — should clean up everything
+        await service.disableTelemetry()
+        let afterDisableCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterDisableCount, 0, "Scenarios should be deleted on disable")
+
+        // Re-register scenarios after disable — should NOT create CloudKit records
+        // because telemetryRequested is now false (even though clientIdentifier persists)
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+        let afterReregisterCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterReregisterCount, 0, "Scenarios should not be re-created in CloudKit when telemetry is disabled")
+
+        // In-memory states should still be populated (for UI) but all off
+        XCTAssertEqual(service.scenarioStates.count, 2)
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], TelemetryScenarioRecord.levelOff)
+        XCTAssertEqual(service.scenarioStates["DataSync"], TelemetryScenarioRecord.levelOff)
+    }
+
+    func testDisableTelemetryClearsScenariosBeforeReactivation() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "pending-clear"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        // Register scenarios without telemetry active — they are stored as pending
+        try await service.registerScenarios(["NetworkRequests"])
+        XCTAssertEqual(service.scenarioStates.count, 1, "Pending scenarios should set local state")
+
+        // Force-enable (bypasses admin approval, so scenarios are actually registered)
+        await service.enableTelemetry(force: true)
+        let afterEnable = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterEnable, 1, "Pending scenario should be registered on force-enable")
+
+        // Disable — should fully clean up
+        await service.disableTelemetry()
+        XCTAssertTrue(service.scenarioStates.isEmpty, "Scenario states should be cleared after disable")
+
+        let persisted = await scenarioStore.loadAllLevels()
+        XCTAssertTrue(persisted.isEmpty, "Persisted scenario levels should be cleared after disable")
+
+        let afterDisable = await cloudKit.scenarioList().count
+        XCTAssertEqual(afterDisable, 0, "CloudKit scenarios should be deleted after disable")
+    }
+
+    func testRegisterScenariosWhilePendingApprovalDoesNotWriteToCloudKit() async throws {
+        let cloudKit = MockCloudKitClient()
+        let store = InMemoryTelemetrySettingsStore()
+        let scenarioStore = InMemoryScenarioStore()
+
+        let service = TelemetryLifecycleService(
+            settingsStore: store,
+            cloudKitClient: cloudKit,
+            identifierGenerator: FixedIdentifierGenerator(identifier: "pending-scenario"),
+            configuration: .init(containerIdentifier: "iCloud.test.container"),
+            logger: SpyTelemetryLogger(),
+
+            subscriptionManager: MockSubscriptionManager(),
+            scenarioStore: scenarioStore
+        )
+
+        // Request diagnostics — creates client with isEnabled=false (pending admin approval)
+        await service.enableTelemetry()
+        XCTAssertEqual(service.status, .pendingApproval)
+        XCTAssertTrue(service.settings.telemetryRequested)
+        XCTAssertFalse(service.settings.telemetrySendingEnabled)
+
+        // Register scenarios while pending — should NOT create CloudKit records
+        try await service.registerScenarios(["NetworkRequests", "DataSync"])
+
+        let scenarioCount = await cloudKit.scenarioList().count
+        XCTAssertEqual(scenarioCount, 0, "Scenarios should not be created in CloudKit while client is pending approval")
+
+        // In-memory states should still be populated for UI
+        XCTAssertEqual(service.scenarioStates.count, 2)
+        XCTAssertEqual(service.scenarioStates["NetworkRequests"], TelemetryScenarioRecord.levelOff)
+    }
+
     func testGracefulDegradationOnSubscriptionFailure() async throws {
         let cloudKit = MockCloudKitClient()
         let store = InMemoryTelemetrySettingsStore()
@@ -1233,7 +1343,7 @@ final class TelemetryLifecycleServiceTests: XCTestCase {
             identifierGenerator: FixedIdentifierGenerator(identifier: "graceful-test"),
             configuration: .init(containerIdentifier: "iCloud.test.container"),
             logger: SpyTelemetryLogger(),
-            syncCoordinator: TelemetrySettingsSyncCoordinator(backupClient: MockBackupClient()),
+
             subscriptionManager: mockSubscriptionManager
         )
 
@@ -1614,17 +1724,6 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
     func fetchAllCommands() async -> [TelemetryCommandRecord] {
         commands
     }
-}
-
-private actor MockBackupClient: CloudKitSettingsBackupClientProtocol {
-    private(set) var loadCallCount = 0
-
-    func saveSettings(_ settings: TelemetrySettings) async throws {}
-    func loadSettings() async throws -> TelemetrySettings? {
-        loadCallCount += 1
-        return nil
-    }
-    func clearSettings() async throws {}
 }
 
 private actor InMemoryScenarioStore: TelemetryScenarioStoring {

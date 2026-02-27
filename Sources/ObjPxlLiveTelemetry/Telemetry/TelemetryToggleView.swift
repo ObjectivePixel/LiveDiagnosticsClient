@@ -26,6 +26,22 @@ public struct TelemetryToggleView: View {
     public var body: some View {
         Section {
             // 1. Client Code — always shown
+            #if os(watchOS)
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Client Code", systemImage: "person.text.rectangle")
+                if clientCode.isEmpty {
+                    Text("Generating…")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(clientCode)
+                        .font(.body.monospaced())
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            #else
             LabeledContent {
                 HStack {
                     if clientCode.isEmpty {
@@ -50,6 +66,7 @@ public struct TelemetryToggleView: View {
             } label: {
                 Label("Client Code", systemImage: "person.text.rectangle")
             }
+            #endif
 
             // 2. Status row — always shown
             TelemetryStatusRow(

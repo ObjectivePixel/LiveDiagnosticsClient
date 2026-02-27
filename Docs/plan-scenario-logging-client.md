@@ -671,7 +671,6 @@ public struct TelemetrySchema: Sendable {
     // Record type names
     public static let recordType: String                    // "TelemetryEvent"
     public static let clientRecordType: String              // "TelemetryClient"
-    public static let settingsBackupRecordType: String      // "TelemetrySettingsBackup"
     public static let commandRecordType: String             // "TelemetryCommand"
     public static let scenarioRecordType: String            // "TelemetryScenario"  ← New
 
@@ -691,13 +690,6 @@ public struct TelemetrySchema: Sendable {
     public enum ClientField: String, CaseIterable {
         case clientId, created, isEnabled
         public var isIndexed: Bool { ... }
-        public var fieldTypeDescription: String { ... }
-    }
-
-    // Settings backup fields
-    public enum SettingsBackupField: String, CaseIterable {
-        case telemetryRequested, telemetrySendingEnabled
-        case clientIdentifier, lastUpdated
         public var fieldTypeDescription: String { ... }
     }
 
@@ -1069,7 +1061,6 @@ public final class TelemetryLifecycleService {
         identifierGenerator: any TelemetryIdentifierGenerating = TelemetryIdentifierGenerator(),
         configuration: Configuration,
         logger: (any TelemetryLogging)? = nil,
-        syncCoordinator: TelemetrySettingsSyncCoordinator? = nil,
         subscriptionManager: (any TelemetrySubscriptionManaging)? = nil,
         scenarioStore: (any TelemetryScenarioStoring)? = nil  // ← New
     )
@@ -1188,32 +1179,3 @@ public struct DebugInfo: Sendable {
 }
 ```
 
----
-
-### CloudKitSettingsBackupClient
-
-```swift
-public protocol CloudKitSettingsBackupClientProtocol: Sendable {
-    func saveSettings(_ settings: TelemetrySettings) async throws
-    func loadSettings() async throws -> TelemetrySettings?
-    func clearSettings() async throws
-}
-
-public struct CloudKitSettingsBackupClient: CloudKitSettingsBackupClientProtocol {
-    public init(containerIdentifier: String)
-}
-```
-
----
-
-### TelemetrySettingsSyncCoordinator
-
-```swift
-public actor TelemetrySettingsSyncCoordinator {
-    public enum RestoreResult { ... }
-    public init(backupClient: CloudKitSettingsBackupClientProtocol)
-    public func backupSettings(_ settings: TelemetrySettings) async throws
-    public func restoreSettingsFromBackup() async -> RestoreResult
-    public func clearBackup() async throws
-}
-```
