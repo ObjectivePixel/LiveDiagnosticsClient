@@ -357,13 +357,3 @@ private struct TelemetryStatusRow: View {
         }
     }
 }
-
-#Preview {
-    Form {
-        TelemetryToggleView(
-            lifecycle: TelemetryLifecycleService(
-                configuration: .init(containerIdentifier: "iCloud.preview.telemetry")
-            )
-        )
-    }
-}
