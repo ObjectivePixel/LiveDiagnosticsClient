@@ -61,7 +61,6 @@ public final class TelemetryLifecycleService {
     private let identifierGenerator: any TelemetryIdentifierGenerating
     private let configuration: Configuration
     private let logger: any TelemetryLogging
-    private let syncCoordinator: TelemetrySettingsSyncCoordinator
     private var commandProcessor: TelemetryCommandProcessor?
     private var subscriptionManager: (any TelemetrySubscriptionManaging)?
     private let scenarioStore: any TelemetryScenarioStoring
@@ -75,7 +74,6 @@ public final class TelemetryLifecycleService {
         identifierGenerator: any TelemetryIdentifierGenerating = TelemetryIdentifierGenerator(),
         configuration: Configuration,
         logger: (any TelemetryLogging)? = nil,
-        syncCoordinator: TelemetrySettingsSyncCoordinator? = nil,
         subscriptionManager: (any TelemetrySubscriptionManaging)? = nil,
         scenarioStore: (any TelemetryScenarioStoring)? = nil
     ) {
@@ -84,9 +82,6 @@ public final class TelemetryLifecycleService {
         self.cloudKitClient = resolvedCloudKitClient
         self.identifierGenerator = identifierGenerator
         self.configuration = configuration
-        self.syncCoordinator = syncCoordinator ?? TelemetrySettingsSyncCoordinator(
-            backupClient: CloudKitSettingsBackupClient(containerIdentifier: configuration.containerIdentifier)
-        )
         self.subscriptionManager = subscriptionManager ?? TelemetrySubscriptionManager(cloudKitClient: resolvedCloudKitClient)
         self.scenarioStore = scenarioStore ?? UserDefaultsTelemetryScenarioStore()
         if let logger {
@@ -120,75 +115,36 @@ public final class TelemetryLifecycleService {
             return settings
         }
 
-        // Kick off background restoration (non-blocking on telemetry thread)
+        // Kick off background reconciliation (non-blocking on telemetry thread)
         isRestorationInProgress = true
         Task {
-            await performBackgroundRestore()
-        }
+            if settings.telemetryRequested, let identifier = settings.clientIdentifier {
+                _ = await reconcile()
+                await setupCommandProcessing(for: identifier)
 
-        return localSettings
-    }
+                let shouldBeEnabled = settings.telemetryRequested && (settings.telemetrySendingEnabled || isForceOn)
+                await logger.activate(enabled: shouldBeEnabled)
 
-    private func performBackgroundRestore() async {
-        // If telemetry was never enabled, skip the CloudKit backup restore entirely
-        if !settings.telemetryRequested {
-            reconciliation = .allDisabled
-            setStatus(.disabled, message: "Telemetry disabled")
-            await logger.activate(enabled: false)
+                // Register any scenarios that were deferred because clientIdentifier wasn't available.
+                // Guard on telemetrySendingEnabled — scenarios should only exist in CloudKit
+                // when the client is actually approved and active.
+                if (settings.telemetrySendingEnabled || isForceOn), let clientId = settings.clientIdentifier {
+                    let scenariosToRegister = pendingScenarioNames ?? (registeredScenarioNames.isEmpty ? nil : registeredScenarioNames)
+                    if let names = scenariosToRegister {
+                        await performScenarioRegistration(names, clientId: clientId)
+                    }
+                }
+            } else {
+                reconciliation = .allDisabled
+                setStatus(.disabled, message: "Telemetry disabled")
+                await logger.activate(enabled: false)
+            }
             await MainActor.run {
                 self.isRestorationInProgress = false
             }
-            return
         }
 
-        let backupResult = await syncCoordinator.restoreSettingsFromBackup()
-
-        await MainActor.run {
-            switch backupResult {
-            case .restored(let restoredSettings):
-                // Use restored settings
-                self.settings = restoredSettings
-                Task {
-                    _ = await self.settingsStore.save(restoredSettings)
-                }
-            case .fresh, .failed, .pending, .restoring:
-                // Use local settings (already set)
-                break
-            }
-        }
-
-        // Now reconcile and activate based on final settings
-        if settings.telemetryRequested, let identifier = settings.clientIdentifier {
-            _ = await reconcile()
-
-            // Set up command processor and subscription if telemetry is requested
-            await setupCommandProcessing(for: identifier)
-        } else {
-            if settings.telemetryRequested || settings.clientIdentifier != nil {
-                settings = await resetAndClearBackup()
-            }
-            reconciliation = .allDisabled
-            setStatus(.disabled, message: "Telemetry disabled")
-        }
-
-        // Activate logger with final enabled state
-        let shouldBeEnabled = settings.telemetryRequested && (settings.telemetrySendingEnabled || isForceOn)
-        await logger.activate(enabled: shouldBeEnabled)
-
-        // Register any scenarios that were deferred because clientIdentifier wasn't available.
-        // Guard on telemetrySendingEnabled — scenarios should only exist in CloudKit
-        // when the client is actually approved and active. This also prevents re-creation
-        // after reconcile() internally calls disableTelemetry().
-        if (settings.telemetrySendingEnabled || isForceOn), let clientId = settings.clientIdentifier {
-            let scenariosToRegister = pendingScenarioNames ?? (registeredScenarioNames.isEmpty ? nil : registeredScenarioNames)
-            if let names = scenariosToRegister {
-                await performScenarioRegistration(names, clientId: clientId)
-            }
-        }
-
-        await MainActor.run {
-            self.isRestorationInProgress = false
-        }
+        return localSettings
     }
 
     @discardableResult
@@ -208,7 +164,7 @@ public final class TelemetryLifecycleService {
             currentSettings.forceOnActive = true
         }
 
-        settings = await saveAndBackupSettings(currentSettings)
+        settings = await settingsStore.save(currentSettings)
         await updateLoggerEnabled()
 
         do {
@@ -250,7 +206,7 @@ public final class TelemetryLifecycleService {
             let serverEnabled = clientRecord?.isEnabled ?? false
             if serverEnabled || force {
                 currentSettings.telemetrySendingEnabled = true
-                settings = await saveAndBackupSettings(currentSettings)
+                settings = await settingsStore.save(currentSettings)
                 reconciliation = .localAndServerEnabled
                 setStatus(.enabled, message: "Telemetry enabled. Client ID: \(identifier)")
             } else {
@@ -296,7 +252,7 @@ public final class TelemetryLifecycleService {
         // 3. Reset local state before CloudKit cleanup
         clientRecord = nil
         reconciliation = reason ?? .allDisabled
-        settings = await resetAndClearBackup()
+        settings = await resetSettings()
 
         // 4. Delete remote records — each step is independent so one failure
         //    does not prevent cleanup of the others.
@@ -522,7 +478,7 @@ public final class TelemetryLifecycleService {
                 outcome = .localAndServerEnabled
             case (false, true):
                 currentSettings.telemetrySendingEnabled = true
-                settings = await saveAndBackupSettings(currentSettings)
+                settings = await settingsStore.save(currentSettings)
                 outcome = .serverEnabledLocalDisabled
             case (true, false):
                 if isForceOn {
@@ -540,11 +496,11 @@ public final class TelemetryLifecycleService {
                     outcome = .missingClient
                     currentSettings = .defaults
                     clientRecord = nil
-                    settings = await resetAndClearBackup()
+                    settings = await resetSettings()
                 } else if isForceOn {
                     // Force-on mode: treat as enabled regardless of server state
                     currentSettings.telemetrySendingEnabled = true
-                    settings = await saveAndBackupSettings(currentSettings)
+                    settings = await settingsStore.save(currentSettings)
                     outcome = .localAndServerEnabled
                 } else {
                     // Client exists but not yet enabled by admin - keep requested state
@@ -678,7 +634,7 @@ private extension TelemetryLifecycleService {
         currentSettings.telemetryRequested = true
         currentSettings.telemetrySendingEnabled = true
         currentSettings.clientIdentifier = clientId
-        settings = await saveAndBackupSettings(currentSettings)
+        settings = await settingsStore.save(currentSettings)
 
         do {
             let existingClients = try await cloudKitClient.fetchTelemetryClients(clientId: clientId, isEnabled: nil)
@@ -723,7 +679,7 @@ private extension TelemetryLifecycleService {
         print("✅ [LifecycleService] Handling ENABLE command")
         var currentSettings = await settingsStore.load()
         currentSettings.telemetrySendingEnabled = true
-        settings = await saveAndBackupSettings(currentSettings)
+        settings = await settingsStore.save(currentSettings)
         await updateLoggerEnabled()
 
         // Update client record's isEnabled to true (client owns this record)
@@ -772,26 +728,12 @@ private extension TelemetryLifecycleService {
         await logger.setEnabled(shouldBeEnabled)
     }
 
-    func saveAndBackupSettings(_ settings: TelemetrySettings) async -> TelemetrySettings {
-        let saved = await settingsStore.save(settings)
-        // Backup to private CloudKit (fire and forget)
-        Task {
-            try? await syncCoordinator.backupSettings(settings)
-        }
-        return saved
-    }
-
-    func resetAndClearBackup() async -> TelemetrySettings {
+    func resetSettings() async -> TelemetrySettings {
         // Preserve the stable client identifier — it is generated once per install
         let existingIdentifier = settings.clientIdentifier
         var resetSettings = TelemetrySettings.defaults
         resetSettings.clientIdentifier = existingIdentifier
-        let saved = await settingsStore.save(resetSettings)
-        // Clear backup from private CloudKit (fire and forget)
-        Task {
-            try? await syncCoordinator.clearBackup()
-        }
-        return saved
+        return await settingsStore.save(resetSettings)
     }
 
     func pushScenarioStatesToLogger() async {

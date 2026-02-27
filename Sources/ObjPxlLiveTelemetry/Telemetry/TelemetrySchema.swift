@@ -4,7 +4,6 @@ import Foundation
 public struct TelemetrySchema: Sendable {
     public static let recordType = "TelemetryEvent"
     public static let clientRecordType = "TelemetryClient"
-    public static let settingsBackupRecordType = "TelemetrySettingsBackup"
     public static let commandRecordType = "TelemetryCommand"
     public static let scenarioRecordType = "TelemetryScenario"
 
@@ -64,24 +63,6 @@ public struct TelemetrySchema: Sendable {
                 return "Date/Time"
             case .isEnabled:
                 return "Boolean"
-            }
-        }
-    }
-
-    public enum SettingsBackupField: String, CaseIterable {
-        case telemetryRequested
-        case telemetrySendingEnabled
-        case clientIdentifier
-        case lastUpdated
-
-        public var fieldTypeDescription: String {
-            switch self {
-            case .telemetryRequested, .telemetrySendingEnabled:
-                return "Boolean"
-            case .clientIdentifier:
-                return "String"
-            case .lastUpdated:
-                return "Date/Time"
             }
         }
     }

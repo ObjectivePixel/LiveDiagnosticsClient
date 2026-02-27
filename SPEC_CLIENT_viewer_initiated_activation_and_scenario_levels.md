@@ -464,7 +464,7 @@ private func handleActivateCommand(_ command: TelemetryCommandRecord) async {
     currentSettings.telemetryRequested = true
     currentSettings.telemetrySendingEnabled = true
     currentSettings.clientIdentifier = clientId
-    settings = await saveAndBackupSettings(currentSettings)
+    settings = await settingsStore.save(currentSettings)
 
     do {
         // Create or fetch the TelemetryClient record (isEnabled = true)
@@ -517,11 +517,9 @@ The existing `enableTelemetry()` method is no longer called from the UI toggle (
 
 Consider making `enableTelemetry()` a thin wrapper around the activate logic, or keep it for the `.enable` command handler. The key point: it should no longer be called from the view.
 
-### 7f. Modify `startup()` / `performBackgroundRestore()`
+### 7f. Modify `startup()`
 
-In `performBackgroundRestore()`, if the client has a saved `clientIdentifier` and `telemetryRequested = true`, it should reconcile as before (checking if TelemetryClient exists on server, setting up command subscription). This handles app relaunch while a session is active.
-
-No changes needed to the core restore logic — it already handles this correctly.
+On startup, if the client has a saved `clientIdentifier` and `telemetryRequested = true`, reconcile against the server (checking if TelemetryClient exists, setting up command subscription). This handles app relaunch while a session is active.
 
 ### 7g. New handler for `.setScenarioLevel`
 
