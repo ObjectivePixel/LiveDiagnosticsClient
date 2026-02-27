@@ -132,12 +132,16 @@ public actor TelemetryCommandProcessor {
             case .setScenarioLevel:
                 guard let scenarioName = command.scenarioName else {
                     print("❌ [CommandProcessor] setScenarioLevel command missing scenarioName")
-                    _ = try await cloudKitClient.updateCommandStatus(
-                        recordID: recordID,
-                        status: .failed,
-                        executedAt: .now,
-                        errorMessage: "Missing scenarioName for setScenarioLevel command"
-                    )
+                    do {
+                        _ = try await cloudKitClient.updateCommandStatus(
+                            recordID: recordID,
+                            status: .failed,
+                            executedAt: .now,
+                            errorMessage: "Missing scenarioName for setScenarioLevel command"
+                        )
+                    } catch {
+                        print("⚠️ [CommandProcessor] Could not update command status (cross-account?): \(error)")
+                    }
                     return
                 }
                 let level = command.diagnosticLevel ?? TelemetryScenarioRecord.levelOff
@@ -146,13 +150,21 @@ public actor TelemetryCommandProcessor {
             }
 
             print("✅ [CommandProcessor] Command \(command.commandId) executed successfully, updating status...")
-            _ = try await cloudKitClient.updateCommandStatus(
-                recordID: recordID,
-                status: .executed,
-                executedAt: .now,
-                errorMessage: nil
-            )
-            print("✅ [CommandProcessor] Command \(command.commandId) marked as executed")
+            // Status update is best-effort — the command record may be owned
+            // by a different iCloud account (cross-account viewer) and CloudKit
+            // will reject the WRITE.  The handler already ran successfully so
+            // we should not treat a status-update failure as an activation error.
+            do {
+                _ = try await cloudKitClient.updateCommandStatus(
+                    recordID: recordID,
+                    status: .executed,
+                    executedAt: .now,
+                    errorMessage: nil
+                )
+                print("✅ [CommandProcessor] Command \(command.commandId) marked as executed")
+            } catch {
+                print("⚠️ [CommandProcessor] Could not update command status to executed (cross-account?): \(error)")
+            }
         } catch {
             print("❌ [CommandProcessor] Command \(command.commandId) failed: \(error)")
             do {
@@ -164,7 +176,7 @@ public actor TelemetryCommandProcessor {
                 )
                 print("⚠️ [CommandProcessor] Command \(command.commandId) marked as failed")
             } catch {
-                print("❌ [CommandProcessor] Failed to update command status to failed: \(error)")
+                print("⚠️ [CommandProcessor] Could not update command status to failed (cross-account?): \(error)")
             }
         }
     }
