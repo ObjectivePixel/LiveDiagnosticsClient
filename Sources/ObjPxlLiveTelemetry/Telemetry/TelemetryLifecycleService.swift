@@ -652,19 +652,10 @@ private extension TelemetryLifecycleService {
                 )
             }
 
-            // Update command status to "executed" — best-effort only.
-            // When the viewer is on a different iCloud account, the command
-            // record is owned by that account and CloudKit will reject the
-            // WRITE ("WRITE operation not permitted").  This must not block
-            // the activation itself.
             if let recordID = command.recordID {
-                do {
-                    _ = try await cloudKitClient.updateCommandStatus(
-                        recordID: recordID, status: .executed, executedAt: .now, errorMessage: nil
-                    )
-                } catch {
-                    print("⚠️ [LifecycleService] Could not update command status (cross-account?): \(error)")
-                }
+                _ = try await cloudKitClient.updateCommandStatus(
+                    recordID: recordID, status: .executed, executedAt: .now, errorMessage: nil
+                )
             }
 
             await setupCommandProcessing(for: clientId)
