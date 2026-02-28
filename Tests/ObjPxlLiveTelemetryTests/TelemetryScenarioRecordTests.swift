@@ -12,7 +12,8 @@ final class TelemetryScenarioRecordTests: XCTestCase {
             clientId: "client-1",
             scenarioName: "NetworkRequests",
             diagnosticLevel: TelemetryLogLevel.info.rawValue,
-            created: created
+            created: created,
+            sessionId: "session-abc"
         )
 
         XCTAssertEqual(record.recordID, recordID)
@@ -22,6 +23,7 @@ final class TelemetryScenarioRecordTests: XCTestCase {
         XCTAssertTrue(record.isActive)
         XCTAssertEqual(record.resolvedLevel, .info)
         XCTAssertEqual(record.created, created)
+        XCTAssertEqual(record.sessionId, "session-abc")
     }
 
     func testInitWithDefaults() {
@@ -36,6 +38,7 @@ final class TelemetryScenarioRecordTests: XCTestCase {
         XCTAssertEqual(record.diagnosticLevel, TelemetryScenarioRecord.levelOff)
         XCTAssertFalse(record.isActive)
         XCTAssertNil(record.resolvedLevel)
+        XCTAssertEqual(record.sessionId, "")
         // created should be auto-set to now
         XCTAssertTrue(record.created.timeIntervalSinceNow < 1)
     }
@@ -45,7 +48,8 @@ final class TelemetryScenarioRecordTests: XCTestCase {
             clientId: "client-3",
             scenarioName: "UserInteraction",
             diagnosticLevel: TelemetryLogLevel.debug.rawValue,
-            created: Date(timeIntervalSince1970: 2000)
+            created: Date(timeIntervalSince1970: 2000),
+            sessionId: "session-xyz"
         )
 
         let ckRecord = original.toCKRecord()
@@ -56,6 +60,7 @@ final class TelemetryScenarioRecordTests: XCTestCase {
         XCTAssertEqual(restored.scenarioName, original.scenarioName)
         XCTAssertEqual(restored.diagnosticLevel, original.diagnosticLevel)
         XCTAssertEqual(restored.created.timeIntervalSince1970, original.created.timeIntervalSince1970, accuracy: 1)
+        XCTAssertEqual(restored.sessionId, "session-xyz")
     }
 
     func testRoundTripDisabled() throws {
@@ -72,6 +77,18 @@ final class TelemetryScenarioRecordTests: XCTestCase {
         XCTAssertFalse(restored.isActive)
     }
 
+    func testBackwardCompatibleMissingSessionIdDefaultsToEmpty() throws {
+        let ckRecord = CKRecord(recordType: TelemetrySchema.scenarioRecordType)
+        ckRecord["clientid"] = "client-old"
+        ckRecord["scenarioName"] = "OldScenario"
+        ckRecord["diagnosticLevel"] = NSNumber(value: 1)
+        ckRecord["created"] = Date(timeIntervalSince1970: 1000)
+        // No sessionId field — simulates a pre-migration record
+
+        let record = try TelemetryScenarioRecord(record: ckRecord)
+        XCTAssertEqual(record.sessionId, "", "Missing sessionId should default to empty string")
+    }
+
     func testBackwardCompatibleReadingFromIsEnabled() throws {
         // Simulate a legacy record with isEnabled (Bool) instead of diagnosticLevel
         let ckRecord = CKRecord(recordType: TelemetrySchema.scenarioRecordType)
@@ -83,6 +100,7 @@ final class TelemetryScenarioRecordTests: XCTestCase {
         let record = try TelemetryScenarioRecord(record: ckRecord)
         XCTAssertEqual(record.diagnosticLevel, TelemetryLogLevel.info.rawValue)
         XCTAssertTrue(record.isActive)
+        XCTAssertEqual(record.sessionId, "", "Legacy records should default sessionId to empty string")
     }
 
     func testBackwardCompatibleReadingFromIsEnabledFalse() throws {
@@ -171,8 +189,8 @@ final class TelemetryScenarioRecordTests: XCTestCase {
     func testEquatable() {
         let id = CKRecord.ID(recordName: "eq-test")
         let date = Date(timeIntervalSince1970: 5000)
-        let a = TelemetryScenarioRecord(recordID: id, clientId: "c", scenarioName: "S", diagnosticLevel: 1, created: date)
-        let b = TelemetryScenarioRecord(recordID: id, clientId: "c", scenarioName: "S", diagnosticLevel: 1, created: date)
+        let a = TelemetryScenarioRecord(recordID: id, clientId: "c", scenarioName: "S", diagnosticLevel: 1, created: date, sessionId: "sess")
+        let b = TelemetryScenarioRecord(recordID: id, clientId: "c", scenarioName: "S", diagnosticLevel: 1, created: date, sessionId: "sess")
         XCTAssertEqual(a, b)
     }
 

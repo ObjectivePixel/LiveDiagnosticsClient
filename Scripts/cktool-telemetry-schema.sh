@@ -31,12 +31,6 @@ fi
 SCHEMA_FILE="${SCHEMA_FILE:-$(mktemp -t telemetry-schema)}"
 
 # CloudKit schema DSL (same format as cktool export-schema).
-# Note: TelemetryEvent and TelemetryClient are PUBLIC database records.
-# TelemetrySettingsBackup is a PRIVATE database record (per-user backup).
-#
-# IMPORTANT: This script imports to the PUBLIC database by default.
-# For TelemetrySettingsBackup (private database), the schema is auto-created
-# when the app first writes to it. No manual setup needed for private records.
 cat > "$SCHEMA_FILE" <<'SCHEMA'
 DEFINE SCHEMA
 
@@ -71,7 +65,7 @@ DEFINE SCHEMA
         executedAt      TIMESTAMP,
         scenarioName    STRING,
         status          STRING QUERYABLE SEARCHABLE SORTABLE,
-        GRANT WRITE TO "_icloud",
+        GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
@@ -112,6 +106,7 @@ DEFINE SCHEMA
         created         TIMESTAMP QUERYABLE SORTABLE,
         diagnosticLevel INT64 QUERYABLE SORTABLE,
         scenarioName    STRING QUERYABLE SEARCHABLE SORTABLE,
+        sessionId       STRING QUERYABLE SEARCHABLE SORTABLE,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
@@ -138,7 +133,7 @@ DEFINE SCHEMA
         "___etag"       STRING,
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
-        "___recordID"   REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
         roles           LIST<INT64>,
         GRANT WRITE TO "_creator",
         GRANT READ TO "_world"

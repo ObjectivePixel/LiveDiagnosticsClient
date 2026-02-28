@@ -104,17 +104,18 @@ public struct TelemetrySchema: Sendable {
         case scenarioName
         case diagnosticLevel
         case created
+        case sessionId
 
         public var isIndexed: Bool {
             switch self {
-            case .clientId, .scenarioName, .diagnosticLevel, .created:
+            case .clientId, .scenarioName, .diagnosticLevel, .created, .sessionId:
                 return true
             }
         }
 
         public var fieldTypeDescription: String {
             switch self {
-            case .clientId, .scenarioName:
+            case .clientId, .scenarioName, .sessionId:
                 return "String"
             case .diagnosticLevel:
                 return "Int64"

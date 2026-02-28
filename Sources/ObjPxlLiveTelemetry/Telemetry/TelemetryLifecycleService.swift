@@ -348,6 +348,7 @@ public final class TelemetryLifecycleService {
     }
 
     private func performScenarioRegistration(_ scenarioNames: [String], clientId: String) async {
+        let sessionId = logger.currentSessionId
         var levels: [String: Int] = [:]
 
         // 1. Load local persisted levels for all scenarios
@@ -357,12 +358,12 @@ public final class TelemetryLifecycleService {
         }
 
         do {
-            // 2. Fetch existing scenarios from CloudKit
+            // 2. Fetch existing scenarios from CloudKit for this session
             let existingScenarios = try await cloudKitClient.fetchScenarios(forClient: clientId)
 
-            // 3. Build lookup by scenarioName
+            // 3. Build lookup by scenarioName (only matching this session)
             var existingByName: [String: TelemetryScenarioRecord] = [:]
-            for scenario in existingScenarios {
+            for scenario in existingScenarios where scenario.sessionId == sessionId {
                 existingByName[scenario.scenarioName] = scenario
             }
 
@@ -375,7 +376,8 @@ public final class TelemetryLifecycleService {
                     newRecords.append(TelemetryScenarioRecord(
                         clientId: clientId,
                         scenarioName: name,
-                        diagnosticLevel: levels[name] ?? TelemetryScenarioRecord.levelOff
+                        diagnosticLevel: levels[name] ?? TelemetryScenarioRecord.levelOff,
+                        sessionId: sessionId
                     ))
                 }
             }
@@ -443,9 +445,10 @@ public final class TelemetryLifecycleService {
     }
 
     public func endSession() async throws {
-        guard let clientId = settings.clientIdentifier else { return }
-        _ = try await cloudKitClient.deleteScenarios(forClient: clientId)
-        _ = try await cloudKitClient.deleteAllRecords()
+        let sessionId = logger.currentSessionId
+        guard !sessionId.isEmpty else { return }
+        _ = try await cloudKitClient.deleteScenarios(forSessionId: sessionId)
+        _ = try await cloudKitClient.deleteRecords(forSessionId: sessionId)
         scenarioRecords.removeAll()
         scenarioStates.removeAll()
         await pushScenarioStatesToLogger()
