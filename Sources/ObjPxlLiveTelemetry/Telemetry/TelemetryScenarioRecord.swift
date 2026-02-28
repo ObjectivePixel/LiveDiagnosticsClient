@@ -26,6 +26,7 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
     public let scenarioName: String
     public var diagnosticLevel: Int
     public let created: Date
+    public let sessionId: String
 
     /// Convenience: is this scenario actively capturing?
     public var isActive: Bool { diagnosticLevel >= 0 }
@@ -40,13 +41,15 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
         clientId: String,
         scenarioName: String,
         diagnosticLevel: Int = Self.levelOff,
-        created: Date = .now
+        created: Date = .now,
+        sessionId: String = ""
     ) {
         self.recordID = recordID
         self.clientId = clientId
         self.scenarioName = scenarioName
         self.diagnosticLevel = diagnosticLevel
         self.created = created
+        self.sessionId = sessionId
     }
 
     public init(record: CKRecord) throws {
@@ -77,11 +80,15 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
             throw Error.missingField(TelemetrySchema.ScenarioField.created.rawValue)
         }
 
+        // sessionId is optional for backward compatibility with existing records
+        let sessionId = record[TelemetrySchema.ScenarioField.sessionId.rawValue] as? String ?? ""
+
         self.recordID = record.recordID
         self.clientId = clientId
         self.scenarioName = scenarioName
         self.diagnosticLevel = diagnosticLevel
         self.created = created
+        self.sessionId = sessionId
     }
 
     public func toCKRecord() -> CKRecord {
@@ -96,6 +103,7 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
         record[TelemetrySchema.ScenarioField.scenarioName.rawValue] = scenarioName as CKRecordValue
         record[TelemetrySchema.ScenarioField.diagnosticLevel.rawValue] = diagnosticLevel as CKRecordValue
         record[TelemetrySchema.ScenarioField.created.rawValue] = created as CKRecordValue
+        record[TelemetrySchema.ScenarioField.sessionId.rawValue] = sessionId as CKRecordValue
 
         return record
     }
@@ -109,6 +117,7 @@ public struct TelemetryScenarioRecord: Sendable, Equatable {
         record[TelemetrySchema.ScenarioField.scenarioName.rawValue] = scenarioName as CKRecordValue
         record[TelemetrySchema.ScenarioField.diagnosticLevel.rawValue] = diagnosticLevel as CKRecordValue
         record[TelemetrySchema.ScenarioField.created.rawValue] = created as CKRecordValue
+        record[TelemetrySchema.ScenarioField.sessionId.rawValue] = sessionId as CKRecordValue
 
         return record
     }

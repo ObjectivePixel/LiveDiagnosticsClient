@@ -1564,6 +1564,21 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
         return count
     }
 
+    func deleteRecords(forSessionId sessionId: String) async throws -> Int {
+        if let deleteError {
+            throw deleteError
+        }
+        let matching = records.filter { ($0[TelemetrySchema.Field.sessionId.rawValue] as? String) == sessionId }
+        records.removeAll { ($0[TelemetrySchema.Field.sessionId.rawValue] as? String) == sessionId }
+        return matching.count
+    }
+
+    func deleteScenarios(forSessionId sessionId: String) async throws -> Int {
+        let matching = scenarios.filter { $0.sessionId == sessionId }
+        scenarios.removeAll { $0.sessionId == sessionId }
+        return matching.count
+    }
+
     // MARK: - Command Methods
 
     func createCommand(_ command: TelemetryCommandRecord) async throws -> TelemetryCommandRecord {
@@ -1661,7 +1676,8 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
                 clientId: scenario.clientId,
                 scenarioName: scenario.scenarioName,
                 diagnosticLevel: scenario.diagnosticLevel,
-                created: scenario.created
+                created: scenario.created,
+                sessionId: scenario.sessionId
             )
         }
         scenarios.append(contentsOf: saved)

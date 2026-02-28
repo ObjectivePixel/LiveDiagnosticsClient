@@ -42,6 +42,10 @@ public protocol CloudKitClientProtocol: Sendable {
     func removeCommandSubscription(_ subscriptionID: CKSubscription.ID) async throws
     func fetchCommandSubscription(for clientId: String) async throws -> CKSubscription.ID?
 
+    // Session-scoped deletion
+    func deleteRecords(forSessionId sessionId: String) async throws -> Int
+    func deleteScenarios(forSessionId sessionId: String) async throws -> Int
+
     // Scenario CRUD
     func createScenarios(_ scenarios: [TelemetryScenarioRecord]) async throws -> [TelemetryScenarioRecord]
     func fetchScenarios(forClient clientId: String?) async throws -> [TelemetryScenarioRecord]
@@ -557,6 +561,115 @@ public struct CloudKitClient: CloudKitClientProtocol {
                         continuation.resume()
                     case .failure(let error):
                         print("❌ Failed to delete batch: \(error)")
+                        continuation.resume(throwing: error)
+                    }
+                }
+
+                database.add(operation)
+            }
+
+            totalDeleted += batch.count
+        }
+
+        print("✅ Successfully deleted \(totalDeleted) records")
+        return totalDeleted
+    }
+
+    // MARK: - Session-Scoped Deletion
+
+    public func deleteRecords(forSessionId sessionId: String) async throws -> Int {
+        print("🗑️ Deleting events for session: \(sessionId)")
+
+        let predicate = NSPredicate(
+            format: "%K == %@",
+            TelemetrySchema.Field.sessionId.rawValue,
+            sessionId
+        )
+        return try await deleteRecordsByPredicate(
+            predicate,
+            recordType: TelemetrySchema.recordType
+        )
+    }
+
+    public func deleteScenarios(forSessionId sessionId: String) async throws -> Int {
+        print("🗑️ Deleting scenarios for session: \(sessionId)")
+
+        let predicate = NSPredicate(
+            format: "%K == %@",
+            TelemetrySchema.ScenarioField.sessionId.rawValue,
+            sessionId
+        )
+        return try await deleteRecordsByPredicate(
+            predicate,
+            recordType: TelemetrySchema.scenarioRecordType
+        )
+    }
+
+    private func deleteRecordsByPredicate(
+        _ predicate: NSPredicate,
+        recordType: String
+    ) async throws -> Int {
+        let query = CKQuery(recordType: recordType, predicate: predicate)
+        query.sortDescriptors = []
+
+        func fetchIDs(cursor: CKQueryOperation.Cursor?) async throws -> ([CKRecord.ID], CKQueryOperation.Cursor?) {
+            let op: CKQueryOperation = cursor.map(CKQueryOperation.init) ?? CKQueryOperation(query: query)
+            op.desiredKeys = []
+            op.resultsLimit = CKQueryOperation.maximumResults
+            op.qualityOfService = .utility
+
+            return try await withCheckedThrowingContinuation { continuation in
+                var ids: [CKRecord.ID] = []
+
+                op.recordMatchedBlock = { _, result in
+                    if case .success(let record) = result {
+                        ids.append(record.recordID)
+                    }
+                }
+
+                op.queryResultBlock = { result in
+                    switch result {
+                    case .success(let cursor):
+                        continuation.resume(returning: (ids, cursor))
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+
+                database.add(op)
+            }
+        }
+
+        var recordIDs: [CKRecord.ID] = []
+        var cursor: CKQueryOperation.Cursor?
+        repeat {
+            let page = try await fetchIDs(cursor: cursor)
+            recordIDs.append(contentsOf: page.0)
+            cursor = page.1
+        } while cursor != nil
+
+        guard !recordIDs.isEmpty else {
+            print("✅ No records to delete")
+            return 0
+        }
+
+        print("🗑️ Found \(recordIDs.count) records to delete")
+
+        let batchSize = 400
+        var totalDeleted = 0
+
+        for i in stride(from: 0, to: recordIDs.count, by: batchSize) {
+            let endIndex = min(i + batchSize, recordIDs.count)
+            let batch = Array(recordIDs[i..<endIndex])
+
+            let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: batch)
+
+            let _: Void = try await withCheckedThrowingContinuation { continuation in
+                operation.modifyRecordsResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume()
+                    case .failure(let error):
                         continuation.resume(throwing: error)
                     }
                 }
