@@ -71,7 +71,7 @@ DEFINE SCHEMA
         executedAt      TIMESTAMP,
         scenarioName    STRING,
         status          STRING QUERYABLE SEARCHABLE SORTABLE,
-        GRANT WRITE TO "_creator",
+        GRANT WRITE TO "_icloud",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
