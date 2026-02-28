@@ -3,6 +3,7 @@ import Foundation
 
 public struct DebugInfo: Sendable {
     public let containerID: String
+    public let userRecordID: String?
     public let buildType: String
     public let environment: String
     public let testQueryResults: Int
@@ -68,7 +69,7 @@ public extension CloudKitClientProtocol {
 public struct CloudKitClient: CloudKitClientProtocol {
     public let identifier: String
     private var container: CKContainer { CKContainer(identifier: identifier) }
-    private var database: CKDatabase { container.publicCloudDatabase }
+    public var database: CKDatabase { container.publicCloudDatabase }
 
     public init(containerIdentifier: String) {
         identifier = containerIdentifier
@@ -406,7 +407,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
     
     public func getDebugInfo() async -> DebugInfo {
         let containerID = identifier
-        
+
         #if DEBUG
         let buildType = "DEBUG"
         let environment = "🔧 Development"
@@ -414,7 +415,17 @@ public struct CloudKitClient: CloudKitClientProtocol {
         let buildType = "RELEASE"
         let environment = "🚀 Production"
         #endif
-        
+
+        // Fetch current user record ID
+        let userRecordID: String?
+        do {
+            let recordID = try await container.userRecordID()
+            userRecordID = recordID.recordName
+        } catch {
+            userRecordID = nil
+            print("ℹ️ User record ID fetch failed: \(error)")
+        }
+
         // Try to fetch a single record to see what happens
         let query = CKQuery(recordType: TelemetrySchema.recordType, predicate: NSPredicate(value: true))
         query.sortDescriptors = []
@@ -435,6 +446,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
                 case .success(let record):
                     return DebugInfo(
                         containerID: containerID,
+                        userRecordID: userRecordID,
                         buildType: buildType,
                         environment: environment,
                         testQueryResults: testQueryResults,
@@ -446,6 +458,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
                 case .failure(let error):
                     return DebugInfo(
                         containerID: containerID,
+                        userRecordID: userRecordID,
                         buildType: buildType,
                         environment: environment,
                         testQueryResults: 0,
@@ -458,6 +471,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
             } else {
                 return DebugInfo(
                     containerID: containerID,
+                    userRecordID: userRecordID,
                     buildType: buildType,
                     environment: environment,
                     testQueryResults: testQueryResults,
@@ -478,6 +492,7 @@ public struct CloudKitClient: CloudKitClientProtocol {
 
             return DebugInfo(
                 containerID: containerID,
+                userRecordID: userRecordID,
                 buildType: buildType,
                 environment: environment,
                 testQueryResults: 0,

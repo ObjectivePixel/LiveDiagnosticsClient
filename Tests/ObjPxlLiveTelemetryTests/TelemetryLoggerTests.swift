@@ -324,7 +324,7 @@ private actor SpyCloudKitClient: CloudKitClientProtocol {
     func debugDatabaseInfo() async {}
     func detectEnvironment() async -> String { "test" }
     func getDebugInfo() async -> DebugInfo {
-        DebugInfo(containerID: "test", buildType: "DEBUG", environment: "test", testQueryResults: 0, firstRecordID: nil, firstRecordFields: [], recordCount: 0, errorMessage: nil)
+        DebugInfo(containerID: "test", userRecordID: nil, buildType: "DEBUG", environment: "test", testQueryResults: 0, firstRecordID: nil, firstRecordFields: [], recordCount: 0, errorMessage: nil)
     }
     func deleteAllRecords() async throws -> Int { 0 }
     func createCommand(_ command: TelemetryCommandRecord) async throws -> TelemetryCommandRecord { command }

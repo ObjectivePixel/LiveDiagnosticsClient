@@ -1545,6 +1545,7 @@ private actor MockCloudKitClient: CloudKitClientProtocol {
     func getDebugInfo() async -> DebugInfo {
         DebugInfo(
             containerID: "mock",
+            userRecordID: nil,
             buildType: "DEBUG",
             environment: "mock",
             testQueryResults: records.count,
