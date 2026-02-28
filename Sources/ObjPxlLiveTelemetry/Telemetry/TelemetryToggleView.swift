@@ -202,7 +202,11 @@ private extension TelemetryToggleView {
 
     func endSession() async {
         viewState = .syncing
-        _ = await lifecycle.disableTelemetry()
+        do {
+            try await lifecycle.endSession()
+        } catch {
+            print("⚠️ End session error: \(error)")
+        }
         settleViewState()
     }
 

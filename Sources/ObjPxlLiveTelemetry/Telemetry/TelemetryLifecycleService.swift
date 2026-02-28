@@ -449,6 +449,10 @@ public final class TelemetryLifecycleService {
         guard !sessionId.isEmpty else { return }
         _ = try await cloudKitClient.deleteScenarios(forSessionId: sessionId)
         _ = try await cloudKitClient.deleteRecords(forSessionId: sessionId)
+        if let recordID = clientRecord?.recordID {
+            try await cloudKitClient.deleteTelemetryClient(recordID: recordID)
+        }
+        clientRecord = nil
         scenarioRecords.removeAll()
         scenarioStates.removeAll()
         await pushScenarioStatesToLogger()
